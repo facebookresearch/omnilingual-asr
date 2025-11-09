@@ -1,0 +1,20 @@
+name: Feature Request
+description: Suggest a new feature for Omnilingual ASR
+title: "[Feature] "
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping us improve! We appreciate your ideas.
+
+  - type: textarea
+    attributes:
+      label: Feature Description
+      description: What feature would you like to see?
+
+  - type: textarea
+    attributes:
+      label: Use Case
+      description: What problem does this solve? What are you trying to achieve?
+      placeholder: Describe your use case and how this feature would help.

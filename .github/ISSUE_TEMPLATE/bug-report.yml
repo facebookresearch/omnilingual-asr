@@ -1,0 +1,49 @@
+name: Bug Report
+title: "[Bug] "
+description: Report an issue with omnilingual-asr
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this issue! Please provide a minimal reproducile example if possible!
+
+  - type: textarea
+    attributes:
+      label: Environment
+      description: Your system and library versions
+      placeholder: |
+        - OS: [e.g., Ubuntu 22.04]
+        - Python: [e.g., 3.10]
+        - PyTorch: [e.g., 2.0.0]
+        - fairseq2: [e.g., 0.2.0]
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Bug Description
+      description: What happened vs. what you expected
+      placeholder: |
+        **What happened:**
+        Describe the issue you encountered and the steps to reproduce it.
+
+        **Expected behavior:**
+        What should have happened instead.
+
+        **Logs/Errors:**
+        Paste any error messages or relevant logs here.
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Severity
+      description: How does this affect your work?
+      multiple: false
+      options:
+          - "Low: Minor annoyance"
+          - "Medium: Significant but workaround exists"
+          - "High: Blocks my work"
+    validations:
+        required: false

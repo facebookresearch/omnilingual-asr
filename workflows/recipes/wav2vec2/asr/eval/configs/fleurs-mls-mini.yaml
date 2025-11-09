@@ -1,0 +1,29 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+model:
+  name: "omniASR_LLM_300M" # replace with [omniASR_CTC_1B, omniASR_CTC_3B,  omniASR_CTC_7B] or the LLM variants
+tokenizer:
+  name: "omniASR_tokenizer" # replace with omniASR_tokenizer_v7 for the 7B LLM-ASR model
+
+dataset:
+  name: "example_dataset"
+  valid_split: "test" # the valid_split parameter is used during evaluation
+  storage_mode: "MIXTURE_PARQUET"
+  task_mode: "ASR"
+  mixture_parquet_storage_config:
+    dataset_summary_path: "/path/to/your/dataset/language_distribution_0.tsv"
+    beta_corpus: 0.5
+    beta_language: 0.5
+    fragment_loading:
+      cache: True
+  asr_task_config:
+     min_audio_len: 32_000
+     max_audio_len: 960_000
+     max_num_elements: 960_000
+     batch_shuffle_window: 1
+     normalize_audio: true
+     example_shuffle_window: 1

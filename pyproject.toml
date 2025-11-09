@@ -1,0 +1,106 @@
+[build-system]
+requires = ["packaging~=23.1", "setuptools~=67.8", "wheel~=0.40"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnilingual_asr"
+dynamic = ["version"]
+description = "Omnilingual ASR Modeling Library"
+authors = [{name = "Meta AI Research"}]
+readme = "README.md"
+license = {file = "LICENSE"}
+keywords = [
+    "speech recognition", "ASR", "automatic speech recognition",
+    "multilingual", "omnilingual", "zero-shot", "few-shot",
+    "speech-to-text", "audio processing", "wav2vec2", "fairseq2",
+    "language models", "speech technology",  "CTC",
+    "transformer models", "beam search",
+    "audio transcription", "voice recognition"
+]
+
+# zip_safe = false
+classifiers=[
+    "Topic :: Scientific/Engineering",
+    "Development Status :: 4 - Beta",
+]
+
+requires-python = ">=3.10"
+dependencies = [
+    "fairseq2[arrow]>=0.5.2,<=0.6",
+    "pyarrow>=20.0.0",
+    "torch",
+    "torchaudio",
+    "numba",
+    "pandas",
+    "numpy",
+    "kenlm",
+    "polars>=1.29.0",
+]
+
+[project.optional-dependencies]
+  data = [
+    "fire",
+    "transformers",
+    "datasets~=3.6.0",
+    "ray>=2.49.0",
+    "soundfile>=0.13.1",
+    "librosa>=0.11.0",
+    "unidecode",
+    "uroman",
+    "fire",
+    "retrying",
+  ]
+  dev = [
+    "black~=25.1",
+    "flake8~=7.1",
+    "flake8-pyi~=24.6",
+    "flake8-pyproject~=1.2",
+    "isort~=6.0",
+    "mypy~=1.15.0",
+    "pandas-stubs~=2.2.3",
+    "pyarrow-stubs~=20.0",
+    "pytest~=8.3",
+    "shellcheck-py~=0.9",
+    "types-tqdm~=4.67.0",
+    "types-editdistance~=0.6",
+    "types-psutil~=5.9",
+    "types-setuptools~=75.8",
+  ]
+
+[project.entry-points."fairseq2.extension"]
+setup = "omnilingual_asr:setup_fairseq2_extension"
+
+
+[project.urls]
+  Source = "https://github.com/facebookresearch/omnilingual-asr"
+  Tracker = "https://github.com/facebookresearch/omnilingual-asr/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "omnilingual_asr.__version__"}
+
+[tool.setuptools.package-data]
+"omnilingual_asr" = ["py.typed"]
+"omnilingual_asr.cards" = ["**/*.yaml"]
+"omnilingual_asr.models.wav2vec2_llama" = ["*.parquet"]
+
+[tool.flake8]
+extend_ignore = ["E", "Y"]  # Black
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+disable_error_code = "type-abstract,typeddict-unknown-key"
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+files = "src,tests"
+python_version = "3.10"
+show_error_codes = true
+show_error_context = true
+strict = true
+warn_unused_configs = false
+warn_unused_ignores = false
+
+[tool.pytest.ini_options]
+minversion = "7.1"
+testpaths = ["tests"]

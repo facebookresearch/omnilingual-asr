@@ -1,0 +1,49 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+model:
+  name: "omniASR_CTC_300M"
+
+dataset:
+  name: "example_dataset"
+  train_split: "train"
+  valid_split: "dev"
+  storage_mode: "MIXTURE_PARQUET"
+  task_mode: "ASR"
+  mixture_parquet_storage_config:
+    dataset_summary_path: "/path/to/your/dataset/language_distribution_0.tsv"
+    beta_corpus: 0.5
+    beta_language: 0.5
+    fragment_loading:
+      cache: True
+  asr_task_config:
+     min_audio_len: 32_000
+     max_audio_len: 960_000
+     max_num_elements: 960_000
+     batch_shuffle_window: 1
+     normalize_audio: true
+     example_shuffle_window: 1
+
+tokenizer:
+  name: "omniASR_tokenizer"
+
+optimizer:
+  config:
+    lr: 5e-05
+
+trainer:
+  freeze_encoder_for_n_steps: 0
+  mixed_precision:
+    dtype: "torch.bfloat16"
+  grad_accumulation:
+    num_batches: 4
+
+regime:
+  num_steps: 20_000
+  validate_after_n_steps: 0
+  validate_every_n_steps: 1000
+  checkpoint_every_n_steps: 1000
+  publish_metrics_every_n_steps: 200
