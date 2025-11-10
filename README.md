@@ -14,16 +14,30 @@
 Omnilingual ASR is an open-source speech recognition system supporting over 1,600 languages — including hundreds never previously covered by any ASR technology. Designed for broad accessibility, it enables new languages to be added with just a few paired examples without requiring specialized expertise or large datasets. By combining scalable zero-shot learning with a flexible model family, Omnilingual ASR aims to make speech technology more inclusive and adaptable for communities and researchers worldwide.
 
 <p align="center">
-  <a href="https://huggingface.co/spaces/facebook/omniasr-transcriptions"><strong>🤗 Huggingface Demo</strong></a> &nbsp;&nbsp;•&nbsp;&nbsp;
-  <a href="https://huggingface.co/datasets/facebook/omnilingual-asr-corpus"><strong> Huggingface Dataset</strong></a> &nbsp;&nbsp;•&nbsp;&nbsp;
-  <a href="https://ai.meta.com/research/publications/omnilingual-asr-open-source-multilingual-speech-recognition-for-1600-languages/"><strong> Paper</strong></a> &nbsp;&nbsp;•&nbsp;&nbsp;
-  <a href="http://ai.meta.com/blog/omnilingual-asr-advancing-automatic-speech-recognition"><strong> Blogpost</strong></a>
+  <a href="https://huggingface.co/spaces/facebook/omniasr-transcriptions"><strong>🤗 Hugging Face Demo</strong></a> &nbsp;&nbsp;•&nbsp;&nbsp;
+  <a href="https://huggingface.co/datasets/facebook/omnilingual-asr-corpus"><strong>📖 Hugging Face Dataset</strong></a> &nbsp;&nbsp;•&nbsp;&nbsp;
+  <a href="https://ai.meta.com/research/publications/omnilingual-asr-open-source-multilingual-speech-recognition-for-1600-languages/"><strong>📄 Paper</strong></a> &nbsp;&nbsp;•&nbsp;&nbsp;
+  <a href="http://ai.meta.com/blog/omnilingual-asr-advancing-automatic-speech-recognition"><strong>📝 Blog Post</strong></a>
 </p>
 
 <div align="center">
   <img src="./result_table.png" alt="Performance results table" width="100%" />
   <p><i>Our 7B-LLM-ASR system achieves state-of-the-art performance across 1,600+ languages, with character error rates (CER) below 10 for 78% of those languages.</i></p>
 </div>
+
+---
+
+### Why Omnilingual ASR?
+
+While many powerful ASR systems exist, Omnilingual ASR is designed to excel in specific areas, especially linguistic scale and accessibility.
+
+| Feature | **Omnilingual ASR** | **OpenAI Whisper** | **Other Models (e.g., SeamlessM4T)** |
+| :--- | :--- | :--- | :--- |
+| **Language Scale** | **1,600+ languages**, with a focus on true "long-tail" and unwritten languages. | ~100 languages, primarily those with significant web data. | Varies, often focused on high-resource languages for translation tasks. |
+| **Extensibility** | **Optimized for Zero-Shot & Few-Shot**. Can recognize new languages with minimal data. | Requires extensive fine-tuning on large datasets to add new languages. | Primarily designed for its pre-trained scope. |
+| **Architecture** | **Specialized Model Families**. Offers fast CTC models and high-accuracy LLM-based models. | Single encoder-decoder Transformer architecture. | Often multi-task, multi-modal architectures (e.g., speech-to-text, text-to-speech). |
+| **Licensing** | Fully open-source under **Apache 2.0** for both code and models. | Code is MIT, but training methodology is not fully public. | Varies, often with custom licenses for commercial use. |
+| **Core Philosophy** | **Linguistic inclusivity and accessibility** for researchers and communities. | General-purpose, high-accuracy ASR for mainstream languages. | Multimodal communication and translation. |
 
 ---
 
@@ -61,14 +75,35 @@ Omnilingual ASR is an open-source speech recognition system supporting over 1,60
 
 ## Installation
 
-The models were developed using [fairseq2](https://github.com/facebookresearch/fairseq2), a research-focused sequence modeling toolkit. While we provide a **reference** inference pipeline that works across platforms, audio support requires [libsndfile](https://github.com/facebookresearch/fairseq2?tab=readme-ov-file#system-dependencies) (Mac: `brew install libsndfile`; Windows may need an additional [setup](https://github.com/facebookresearch/fairseq2?tab=readme-ov-file#installing-on-windows)).
+The models were developed using [fairseq2](https://github.com/facebookresearch/fairseq2). While the `omnilingual-asr` package handles most dependencies, the underlying audio processing library requires `libsndfile`.
+
+**1. Install System Dependencies**
+
+*   **Linux (Debian/Ubuntu):**
+    ```bash
+    sudo apt-get update && sudo apt-get install libsndfile1 -y
+    ```
+*   **macOS (using Homebrew):**
+    ```bash
+    brew install libsndfile
+    ```
+*   **Windows (using Conda):**
+    The easiest way to manage this on Windows is through a Conda environment:
+    ```bash
+    conda install -c conda-forge libsndfile
+    ```
+
+**2. Install the Python Package**
+
+We recommend using a virtual environment.
 
 ```bash
-# using pip
-pip install omnilingual-asr
+# Create and activate a virtual environment (optional but recommended)
+python -m venv venv
+source venv/bin/activate
 
-# using uv
-uv add omnilingual-asr
+# Install the package
+pip install omnilingual-asr
 ```
 
 ## Inference
@@ -81,6 +116,8 @@ pipeline = ASRInferencePipeline(model_card="omniASR_LLM_7B")
 audio_files = ["/path/to/eng_audio1.flac", "/path/to/deu_audio2.wav"]
 lang = ["eng_Latn", "deu_Latn"]
 transcriptions = pipeline.transcribe(audio_files, lang=lang, batch_size=2)
+
+print(transcriptions)
 ```
 More details on running specific models can be found in the [src/omnilingual_asr/models/inference](/src/omnilingual_asr/models/inference/README.md) directory.
 
@@ -90,7 +127,7 @@ More details on running specific models can be found in the [src/omnilingual_asr
 <tr>
 <td style="width: 40px; vertical-align: top; padding-top: 5px;">⚠️</td>
 <td style="vertical-align: top;">
-<strong>Important:</strong> Currently only audio files shorter than 40 seconds are accepted for inference. We plan to add support for transcribing unlimited-length audio files shortly.
+<strong>Important:</strong> Currently only audio files shorter than 40 seconds are accepted for inference. We are actively working on adding support for unlimited-length audio files. See our <a href="#-roadmap--future-work" style="color: #F3BF58;">Roadmap</a> for details.
 </td>
 </tr>
 </table>
@@ -110,12 +147,11 @@ print(supported_langs)
 if "eng_Latn" in supported_langs:
     print("English (Latin script) is supported!")
 ```
-Languages follow the format `{language_code}_{script}`, for example `eng_Latn` - English (Latin script), `cmn_Hans` - Mandarin Chinese (Simplified), ...
+Languages follow the format `{language_code}_{script}`, for example `eng_Latn` - English (Latin script), `cmn_Hans` - Mandarin Chinese (Simplified).
 
 ### 🤗 Using the HuggingFace Dataset
 
-We provide a large-scale multilingual speech dataset on HuggingFace under [CC-BY-4.0 License](./LICENSE-CC-BY-4.0.md): [`facebook/omnilingual-asr-corpus`](https://huggingface.co/datasets/facebook/omnilingual-asr-corpus).
-This dataset can be directly used with our inference pipeline for evaluation or testing:
+We provide a large-scale multilingual speech dataset on HuggingFace under the [CC-BY-4.0 License](./LICENSE-CC-BY-4.0.md): [`facebook/omnilingual-asr-corpus`](https://huggingface.co/datasets/facebook/omnilingual-asr-corpus). This dataset can be directly used with our inference pipeline for evaluation or testing:
 
 ```bash
 pip install "omnilingual-asr[data]"
@@ -147,10 +183,10 @@ for i, (transcription, original_text) in enumerate(zip(transcriptions, batch["ra
 
 | Model Name          | Features      | Parameters | Download Size (FP32) | Inference VRAM¹ | Real-Time Factor¹ (relative speed)² |
 |:--------------------|:--------------|:----------:|:--------------------:|:---------------:|:-----------------------------------:|
-| [`omniASR_W2V_300M`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-300M.pt)      | SSL  | 317,390,592   | 1.2 GiB | | |
-| [`omniASR_W2V_1B`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-1B.pt)          | SSL  | 965,514,752   | 3.6 GiB | | |
-| [`omniASR_W2V_3B`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-3B.pt)          | SSL  | 3,064,124,672 | 12.0 GiB | | |
-| [`omniASR_W2V_7B`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-7B.pt)          | SSL  | 6,488,487,168 | 25.0 GiB | | |
+| [`omniASR_W2V_300M`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-300M.pt)      | SSL  | 317,390,592   | 1.2 GiB | - | - |
+| [`omniASR_W2V_1B`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-1B.pt)          | SSL  | 965,514,752   | 3.6 GiB | - | - |
+| [`omniASR_W2V_3B`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-3B.pt)          | SSL  | 3,064,124,672 | 12.0 GiB | - | - |
+| [`omniASR_W2V_7B`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-7B.pt)          | SSL  | 6,488,487,168 | 25.0 GiB | - | - |
 | [`omniASR_CTC_300M`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-300M.pt)      | ASR  | 325,494,996   | 1.3 GiB   | ~2 GiB  | 0.001 (96x) |
 | [`omniASR_CTC_1B`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-1B.pt)          | ASR  | 975,065,300   | 3.7 GiB   | ~3 GiB  | 0.002 (48x) |
 | [`omniASR_CTC_3B`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-3B.pt)          | ASR  | 3,080,423,636 | 12.0 GiB  | ~8 GiB  | 0.003 (32x) |
@@ -160,16 +196,16 @@ for i, (transcription, original_text) in enumerate(zip(transcriptions, batch["ra
 | [`omniASR_LLM_3B`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-3B.pt)          | ASR with optional language conditioning  | 4,376,679,040 | 17.0 GiB  | ~10 GiB | 0.093 (~1x) |
 | [`omniASR_LLM_7B`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B.pt)          | ASR with optional language conditioning  | 7,801,041,536 | 30.0 GiB  | ~17 GiB | 0.092 (~1x) |
 | [`omniASR_LLM_7B_ZS`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B-ZS.pt)    | Zero-Shot ASR | 7,810,900,608 | 30.0 GiB | ~20 GiB | 0.194 (~0.5x) |
-| [`omniASR_tokenizer`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer.model) | Tokenizer for most of architectures (except omniASR_LLM_7B) | - | 100 KiB | - | |
-| [`omniASR_tokenizer_v7`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer_v7.model) | Tokenizer for omniASR_LLM_7B model | - | 100 KiB | - | |
+| [`omniASR_tokenizer`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer.model) | Tokenizer for most architectures (except omniASR_LLM_7B) | - | 100 KiB | - | - |
+| [`omniASR_tokenizer_v7`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer_v7.model) | Tokenizer for omniASR_LLM_7B model | - | 100 KiB | - | - |
 
-¹ (batch=1, audio_len=30s, BF16, A100)
+¹ Performance benchmarked on a single NVIDIA A100 GPU with BF16 precision, transcribing a 30-second audio clip with a batch size of 1. Results may vary on different hardware.
 <br>
-² Relative speed to `omniASR_LLM_7B`
+² Relative speed to `omniASR_LLM_7B`.
 
-###  Model Download & Storage
-- **Automatic Download**: Models are automatically downloaded on first use during training or inference
-- **Storage Location**: Models are saved to [`~/.cache/fairseq2/assets/`](https://facebookresearch.github.io/fairseq2/stable/basics/assets.html#the-asset-store-system)
+### Model Download & Storage
+- **Automatic Download**: Models are automatically downloaded on first use during training or inference.
+- **Storage Location**: Models are saved to [`~/.cache/fairseq2/assets/`](https://facebookresearch.github.io/fairseq2/stable/basics/assets.html#the-asset-store-system).
 
 ### Architecture Documentation
 We provide a high-level model architecture overview in the model directory ([`src/omnilingual_asr/models`](/src/omnilingual_asr/models)), with individual configurations for each model family in the respective directories:
@@ -178,13 +214,27 @@ We provide a high-level model architecture overview in the model directory ([`sr
 - **LLM Models**: [`src/omnilingual_asr/models/wav2vec2_llama`](/src/omnilingual_asr/models/wav2vec2_llama/)
 
 ## Training
-To further finetune the released checkpoints on your own data, use our [data preparation guide](/workflows/dataprep/README.md) followed by the [finetuning recipe guide](/workflows/recipes/wav2vec2/asr/README.md).
+To further fine-tune the released checkpoints on your own data, use our [data preparation guide](/workflows/dataprep/README.md) followed by the [fine-tuning recipe guide](/workflows/recipes/wav2vec2/asr/README.md).
+
+## 🚀 Roadmap & Future Work
+
+We are continuously working to improve Omnilingual ASR. Key areas of future development include:
+
+*   **[ ] Long-Form Audio Support:** Implementing chunking or streaming inference to remove the 40-second limit.
+*   **[ ] Word-Level Timestamps:** Adding support for precise start and end times for each transcribed word.
+*   **[ ] Speaker Diarization:** Integrating models to identify *who* spoke *when* in multi-speaker audio.
+*   **[ ] Model Quantization:** Releasing optimized INT8 or FP16 versions for faster inference and lower memory usage.
+*   **[ ] Expanded Hugging Face Integration:** Publishing all model variants directly on the Hugging Face Hub for easier use within the `transformers` ecosystem.
+
+## Contributing
+
+We welcome contributions from the community! Whether it's reporting a bug, suggesting a new feature, or submitting a pull request, your help is valued. Please see our [**Contributing Guide**](./CONTRIBUTING.md) for more details on how to get started.
 
 ## License
 Omnilingual ASR code and models are released under the [Apache 2.0](./LICENSE).
 
 ## Citation
-If you use the omnilingual ASR model suite in your research and wish to cite us, please use the following BibTeX entry (arxiv version will be added soon)!
+If you use the omnilingual ASR model suite in your research and wish to cite us, please use the following BibTeX entry (an arXiv version will be added soon)!
 
 ### For Reference Managers & LaTeX
 This version uses `et al.` for a clean, universally compatible entry. **This is the recommended version for direct copying.**
@@ -251,4 +301,3 @@ The full list of contributors to this work is provided below for complete attrib
 </table>
 
 </details>
-
