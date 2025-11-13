@@ -6,48 +6,48 @@
 
 name: omniASR_tokenizer
 tokenizer_family: char_tokenizer
-tokenizer: https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer.model
+tokenizer: https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B-ZS/resolve/main/omniASR_tokenizer.model
 
 ---
 
 name: omniASR_tokenizer_v7
 tokenizer_family: char_tokenizer
-tokenizer: https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer_v7.model
+tokenizer: https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B/resolve/main/omniASR_tokenizer_v7.model
 
 ---
 
 name: omniASR_W2V_300M
 model_family: wav2vec2
 model_arch: large_lv60k
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-W2V-300M.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-W2V-300M/resolve/main/omniASR-W2V-300M.pt
 
 ---
 
 name: omniASR_W2V_1B
 model_family: wav2vec2
 model_arch: 1b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-W2V-1B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-W2V-1B/resolve/main/omniASR-W2V-1B.pt
 
 ---
 
 name: omniASR_W2V_3B
 model_family: wav2vec2
 model_arch: 3b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-W2V-3B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-W2V-3B/resolve/main/omniASR-W2V-3B.pt
 
 ---
 
 name: omniASR_W2V_7B
 model_family: wav2vec2
 model_arch: 7b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-W2V-7B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-W2V-7B/resolve/main/omniASR-W2V-7B.pt
 
 ---
 
 name: omniASR_CTC_300M
 model_family: wav2vec2_asr
 model_arch: 300m
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-300M.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-CTC-300M/resolve/main/omniASR-CTC-300M.pt
 tokenizer_ref: omniASR_tokenizer
 
 ---
@@ -55,7 +55,7 @@ tokenizer_ref: omniASR_tokenizer
 name: omniASR_CTC_1B
 model_family: wav2vec2_asr
 model_arch: 1b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-1B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-CTC-1B/resolve/main/omniASR-CTC-1B.pt
 tokenizer_ref: omniASR_tokenizer
 
 ---
@@ -63,7 +63,7 @@ tokenizer_ref: omniASR_tokenizer
 name: omniASR_CTC_3B
 model_family: wav2vec2_asr
 model_arch: 3b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-3B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-CTC-3B/resolve/main/omniASR-CTC-3B.pt
 tokenizer_ref: omniASR_tokenizer
 
 ---
@@ -71,7 +71,7 @@ tokenizer_ref: omniASR_tokenizer
 name: omniASR_CTC_7B
 model_family: wav2vec2_asr
 model_arch: 7b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-7B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-CTC-7B/resolve/main/omniASR-CTC-7B.pt
 tokenizer_ref: omniASR_tokenizer
 
 ---
@@ -79,7 +79,7 @@ tokenizer_ref: omniASR_tokenizer
 name: omniASR_LLM_300M
 model_family: wav2vec2_llama
 model_arch: 300m
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-300M.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-LLM-300M/resolve/main/omniASR-LLM-300M.pt
 tokenizer_ref: omniASR_tokenizer
 
 ---
@@ -87,7 +87,7 @@ tokenizer_ref: omniASR_tokenizer
 name: omniASR_LLM_1B
 model_family: wav2vec2_llama
 model_arch: 1b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-1B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-LLM-1B/resolve/main/omniASR-LLM-1B.pt
 tokenizer_ref: omniASR_tokenizer
 
 ---
@@ -95,7 +95,7 @@ tokenizer_ref: omniASR_tokenizer
 name: omniASR_LLM_3B
 model_family: wav2vec2_llama
 model_arch: 3b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-3B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-LLM-3B/resolve/main/omniASR-LLM-3B.pt
 tokenizer_ref: omniASR_tokenizer
 
 ---
@@ -103,7 +103,7 @@ tokenizer_ref: omniASR_tokenizer
 name: omniASR_LLM_7B
 model_family: wav2vec2_llama
 model_arch: 7b
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B/resolve/main/omniASR-LLM-7B.pt
 tokenizer_ref: omniASR_tokenizer_v7
 
 ---
@@ -111,5 +111,5 @@ tokenizer_ref: omniASR_tokenizer_v7
 name: omniASR_LLM_7B_ZS
 model_family: wav2vec2_llama
 model_arch: 7b_zs
-checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B-ZS.pt
+checkpoint: https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B-ZS/resolve/main/omniASR-LLM-7B-ZS.pt
 tokenizer_ref: omniASR_tokenizer
