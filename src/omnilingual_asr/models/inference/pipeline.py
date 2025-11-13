@@ -85,9 +85,10 @@ def resample_to_16khz(
     if current_sample_rate != target_sample_rate:
         # Resample the waveform using torchaudio functional
         log.debug(f"Resampling from {current_sample_rate}Hz to {target_sample_rate}Hz")
-        # Differnet audio reading mechanisms can cause the shape to be either (channels, time)
+
+        # Different audio reading mechanisms can cause the shape to be either (channels, time)
         # or (time, channels). We go heuristically by the longer axis to enforce (channels, time)
-        # is going to F.resample, and and (time, channels) is returned
+        # is going to F.resample, and (time, channels) is returned
         assert len(waveform.shape) <= 2
         need_transpose = (
             len(waveform.shape) > 1 and waveform.shape[0] > waveform.shape[1]

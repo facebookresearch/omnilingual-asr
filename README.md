@@ -117,7 +117,7 @@ for i, (transcription, original_text) in enumerate(zip(transcriptions, batch["ra
 
 
 ## Model Architectures
-<!-- TODO : add new tokenizer, we'll get two tokenizer, add mssing speed numbers-->
+<!-- TODO : add new tokenizer, we'll get two tokenizer, add missing speed numbers-->
 | Model Name          | Features      | Parameters | Download Size (FP32) | Inference VRAM¹ | Real-Time Factor¹ (relative speed)² |
 |---------------------|---------------|------------:|---------------:|---------------:|-----------:|
 | [`omniASR_W2V_300M`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-300M.pt)      | SSL  | 317_390_592   | 1.2 GiB | | |
