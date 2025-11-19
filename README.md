@@ -120,21 +120,21 @@ for i, (transcription, original_text) in enumerate(zip(transcriptions, batch["ra
 <!-- TODO : add new tokenizer, we'll get two tokenizer, add mssing speed numbers-->
 | Model Name          | Features      | Parameters | Download Size (FP32) | Inference VRAM¹ | Real-Time Factor¹ (relative speed)² |
 |---------------------|---------------|------------:|---------------:|---------------:|-----------:|
-| [`omniASR_W2V_300M`](https://huggingface.co/Steveeeeeeen/omniASR-W2V-300M)      | SSL  | 317_390_592   | 1.2 GiB | | |
-| [`omniASR_W2V_1B`](https://huggingface.co/Steveeeeeeen/omniASR-W2V-1B)          | SSL  | 965_514_752   | 3.6 GiB | | |
-| [`omniASR_W2V_3B`](https://huggingface.co/Steveeeeeeen/omniASR-W2V-3B)          | SSL  | 3_064_124_672 | 12.0 GiB | | |
-| [`omniASR_W2V_7B`](https://huggingface.co/Steveeeeeeen/omniASR-W2V-7B)          | SSL  | 6_488_487_168 | 25.0 GiB | | |
-| [`omniASR_CTC_300M`](https://huggingface.co/Steveeeeeeen/omniASR-CTC-300M)      | ASR  | 325_494_996   | 1.3 GiB   | ~2 GiB  | 0.001 (96x) |
-| [`omniASR_CTC_1B`](https://huggingface.co/Steveeeeeeen/omniASR-CTC-1B)          | ASR  | 975_065_300   | 3.7 GiB   | ~3 GiB  | 0.002 (48x) |
-| [`omniASR_CTC_3B`](https://huggingface.co/Steveeeeeeen/omniASR-CTC-3B)          | ASR  | 3_080_423_636 | 12.0 GiB  | ~8 GiB  | 0.003 (32x) |
-| [`omniASR_CTC_7B`](https://huggingface.co/Steveeeeeeen/omniASR-CTC-7B)          | ASR  | 6_504_786_132 | 25.0 GiB  | ~15 GiB | 0.006 (16x) |
-| [`omniASR_LLM_300M`](https://huggingface.co/Steveeeeeeen/omniASR-LLM-300M)      | ASR with optional language conditioning  | 1_627_603_584 | 6.1 GiB   | ~5 GiB  | 0.090 (~1x) |
-| [`omniASR_LLM_1B`](https://huggingface.co/Steveeeeeeen/omniASR-LLM-1B)          | ASR with optional language conditioning  | 2_275_710_592 | 8.5 GiB   | ~6 GiB  | 0.091 (~1x) |
-| [`omniASR_LLM_3B`](https://huggingface.co/Steveeeeeeen/omniASR-LLM-3B)          | ASR with optional language conditioning  | 4_376_679_040 | 17.0 GiB  | ~10 GiB | 0.093 (~1x) |
-| [`omniASR_LLM_7B`](https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B)          | ASR with optional language conditioning  | 7_801_041_536 | 30.0 GiB  | ~17 GiB | 0.092 (~1x) |
-| [`omniASR_LLM_7B_ZS`](https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B-ZS)    | Zero-Shot ASR | 7_810_900_608 | 30.0 GiB | ~20 GiB | 0.194 (~0.5x) |
-| [`omniASR_tokenizer`](https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B-ZS/resolve/main/omniASR_tokenizer.model) | Tokenizer for most of architectures (except omniASR_LLM_7B) | - | 100 KiB | - |
-| [`omniASR_tokenizer_v7`](https://huggingface.co/Steveeeeeeen/omniASR-LLM-7B/resolve/main/omniASR_tokenizer_v7.model) | Tokenizer for omniASR_LLM_7B model | - | 100 KiB | - ||
+| [`omniASR_W2V_300M`](https://huggingface.co/facebook/omniASR-W2V-300M)      | SSL  | 317_390_592   | 1.2 GiB | | |
+| [`omniASR_W2V_1B`](https://huggingface.co/facebook/omniASR-W2V-1B)          | SSL  | 965_514_752   | 3.6 GiB | | |
+| [`omniASR_W2V_3B`](https://huggingface.co/facebook/omniASR-W2V-3B)          | SSL  | 3_064_124_672 | 12.0 GiB | | |
+| [`omniASR_W2V_7B`](https://huggingface.co/facebook/omniASR-W2V-7B)          | SSL  | 6_488_487_168 | 25.0 GiB | | |
+| [`omniASR_CTC_300M`](https://huggingface.co/facebook/omniASR-CTC-300M)      | ASR  | 325_494_996   | 1.3 GiB   | ~2 GiB  | 0.001 (96x) |
+| [`omniASR_CTC_1B`](https://huggingface.co/facebook/omniASR-CTC-1B)          | ASR  | 975_065_300   | 3.7 GiB   | ~3 GiB  | 0.002 (48x) |
+| [`omniASR_CTC_3B`](https://huggingface.co/facebook/omniASR-CTC-3B)          | ASR  | 3_080_423_636 | 12.0 GiB  | ~8 GiB  | 0.003 (32x) |
+| [`omniASR_CTC_7B`](https://huggingface.co/facebook/omniASR-CTC-7B)          | ASR  | 6_504_786_132 | 25.0 GiB  | ~15 GiB | 0.006 (16x) |
+| [`omniASR_LLM_300M`](https://huggingface.co/facebook/omniASR-LLM-300M)      | ASR with optional language conditioning  | 1_627_603_584 | 6.1 GiB   | ~5 GiB  | 0.090 (~1x) |
+| [`omniASR_LLM_1B`](https://huggingface.co/facebook/omniASR-LLM-1B)          | ASR with optional language conditioning  | 2_275_710_592 | 8.5 GiB   | ~6 GiB  | 0.091 (~1x) |
+| [`omniASR_LLM_3B`](https://huggingface.co/facebook/omniASR-LLM-3B)          | ASR with optional language conditioning  | 4_376_679_040 | 17.0 GiB  | ~10 GiB | 0.093 (~1x) |
+| [`omniASR_LLM_7B`](https://huggingface.co/facebook/omniASR-LLM-7B)          | ASR with optional language conditioning  | 7_801_041_536 | 30.0 GiB  | ~17 GiB | 0.092 (~1x) |
+| [`omniASR_LLM_7B_ZS`](https://huggingface.co/facebook/omniASR-LLM-7B-ZS)    | Zero-Shot ASR | 7_810_900_608 | 30.0 GiB | ~20 GiB | 0.194 (~0.5x) |
+| [`omniASR_tokenizer`](https://huggingface.co/facebook/omniASR-LLM-7B-ZS/resolve/main/omniASR_tokenizer.model) | Tokenizer for most of architectures (except omniASR_LLM_7B) | - | 100 KiB | - |
+| [`omniASR_tokenizer_v7`](https://huggingface.co/facebook/omniASR-LLM-7B/resolve/main/omniASR_tokenizer_v7.model) | Tokenizer for omniASR_LLM_7B model | - | 100 KiB | - ||
 
 ¹ (batch=1, audio_len=30s, BF16, A100)
 
