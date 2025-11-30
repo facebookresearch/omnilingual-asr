@@ -49,6 +49,13 @@ pip install omnilingual-asr
 uv add omnilingual-asr
 ```
 
+If you want to use own pathes for those checkpoints you've already downloaded, please edit the config file `src/omnilingual_asr/cards/models/rc_models.yaml` then install by
+
+```bash
+# install from this repo
+python setup.py install
+```
+
 ## Inference
 
 ```python
@@ -140,6 +147,20 @@ for i, (transcription, original_text) in enumerate(zip(transcriptions, batch["ra
 
 ² Relative speed to `omniASR_LLM_7B`
 
+### HuggingFace Support
+
+The converted edition from fairseq2 checkpoints has also been prepared. (wav2vec 2.0 + llama ones are not ready)
+
+| Model Name | Features | Parameters | Download Size | Inference VRAM |
+|------------|----------|------------|---------------|----------------|
+| [`omniASR_W2V_300M`](https://huggingface.co/gclose19/omnilingual-asr-ssl-hf) | SSL | 315_437_696 | 1.2 GiB | ~2 GiB |
+| [`omniASR_W2V_1B`](https://huggingface.co/gclose19/omnilingual-asr-ssl-hf) | SSL | 962_496_128 | 3.6 GiB | ~4 GiB |
+| [`omniASR_W2V_3B`](https://huggingface.co/gclose19/omnilingual-asr-ssl-hf) | SSL | 3_060_318_848 | 22.8 GiB | ~12 GiB |
+| [`omniASR_W2V_7B`](https://huggingface.co/gclose19/omnilingual-asr-ssl-hf) | SSL | 6_484_681_344 | 48.3 GiB | ~25 GiB |
+| [`omniASR_CTC_300M`](https://huggingface.co/a2d8a4v/omniASR_CTC_300m_hg) | CTC | 325_494_996 | 1.2 GiB | ~2 GiB |
+| [`omniASR_CTC_1B`](https://huggingface.co/a2d8a4v/omniASR_CTC_1b_hg) | CTC | 975_065_300 | 3.6 GiB | ~4 GiB |
+| [`omniASR_CTC_3B`](https://huggingface.co/a2d8a4v/omniASR_CTC_3b_hg) | CTC | 3_080_423_636 | 11.5 GiB | ~12 GiB |
+| [`omniASR_CTC_7B`](https://huggingface.co/a2d8a4v/omniASR_CTC_7b_hg) | CTC | 6_504_786_132 | 48.5 GiB | ~25 GiB |
 
 ### Model Download & Storage
 
