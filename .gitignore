@@ -73,3 +73,5 @@ dmypy.json
 
 # Profiling
 .prof
+
+wandb
