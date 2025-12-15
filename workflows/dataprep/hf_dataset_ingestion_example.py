@@ -193,7 +193,7 @@ class DataPrepCLI:
                 ray_ds_stream_ = ray.data.from_huggingface(mls_hf)
 
                 # Use batch-level text processing
-                num_cpus = max(floor(os.cpu_count()/4), 1)
+                num_cpus = max(floor((os.cpu_count() or 1) / 4), 1)
                 ray_ds_stream_ = ray_ds_stream_.map_batches(
                     MLSTextProcessor,
                     fn_constructor_kwargs={"lang": lang},
@@ -252,7 +252,7 @@ class DataPrepCLI:
                 ray_ds_stream_ = ray.data.from_huggingface(fleurs_hf)
 
                 # Use batch-level text processing
-                num_cpus = max(floor(os.cpu_count()/4), 1)
+                num_cpus = max(floor((os.cpu_count() or 1) / 4), 1)
                 ray_ds_stream_ = ray_ds_stream_.map_batches(
                     FleursTextProcessor,
                     fn_constructor_kwargs={"lang": lang},
