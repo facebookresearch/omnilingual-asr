@@ -17,6 +17,7 @@ from omnilingual_asr.models.wav2vec2_llama import (
     WAV2VEC2_LLAMA_FAMILY,
     Wav2Vec2LlamaConfig,
     Wav2Vec2LlamaModel,
+    apply_fsdp_to_wav2vec2_llama,
     convert_wav2vec2_llama_state_dict,
     create_wav2vec2_llama_model,
     register_wav2vec2_llama_configs,
@@ -25,7 +26,7 @@ from omnilingual_asr.models.wav2vec2_ssl.config import (
     register_omnilingual_asr_wav2vec2_ssl_configs,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def setup_fairseq2_extension(container: DependencyContainer) -> None:
@@ -50,6 +51,7 @@ def _register_models(container: DependencyContainer) -> None:
         kls=Wav2Vec2LlamaModel,
         config_kls=Wav2Vec2LlamaConfig,
         factory=create_wav2vec2_llama_model,
+        fsdp_applier=apply_fsdp_to_wav2vec2_llama,
         state_dict_converter=convert_wav2vec2_llama_state_dict,
     )
 

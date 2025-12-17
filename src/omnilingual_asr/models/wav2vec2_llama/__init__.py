@@ -28,6 +28,9 @@ from omnilingual_asr.models.wav2vec2_llama.factory import (
 from omnilingual_asr.models.wav2vec2_llama.factory import (
     create_wav2vec2_llama_model as create_wav2vec2_llama_model,
 )
+from omnilingual_asr.models.wav2vec2_llama.fsdp import (
+    apply_fsdp_to_wav2vec2_llama as apply_fsdp_to_wav2vec2_llama,
+)
 from omnilingual_asr.models.wav2vec2_llama.hub import (
     get_wav2vec2_llama_model_hub as get_wav2vec2_llama_model_hub,
 )
@@ -39,6 +42,7 @@ from omnilingual_asr.models.wav2vec2_llama.model import (
 )
 
 __all__ = [
+    "apply_fsdp_to_wav2vec2_llama",
     "Wav2Vec2LlamaBeamSearchSeq2SeqGenerator",
     "WAV2VEC2_LLAMA_FAMILY",
     "Wav2Vec2LlamaBeamSearchConfig",

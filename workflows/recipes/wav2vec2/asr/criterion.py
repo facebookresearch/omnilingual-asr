@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping
-from typing import Tuple, final
+from typing import List, Tuple, final
 
 from fairseq2.datasets import Seq2SeqBatch
 from fairseq2.metrics import MetricBag
@@ -66,15 +66,21 @@ class Wav2Vec2AsrCriterion:
         """
         if self._wer_calculator is not None:
             # Validation path - compute both loss and WER
-            ctc_loss, logits, logit_layout, context_logits, context_logit_layout = (
-                self._forward_with_logits(batch)
-            )
+            (
+                ctc_loss,
+                logits,
+                logit_layout,
+                context_logits,
+                context_logit_seq_lens,
+                audio_embeddings,
+            ) = self._forward_with_logits(batch)
             self._wer_calculator.compute_wer(
                 batch,
                 logits,
                 logit_layout,
                 context_logits,
-                context_logit_layout,
+                context_logit_seq_lens,  # type: ignore
+                audio_embeddings,  # type: ignore
                 metric_bag,
                 self._llama_beam_search,
             )
@@ -87,13 +93,18 @@ class Wav2Vec2AsrCriterion:
 
         return ctc_loss, batch.batch_size  # type: ignore
 
-    def _forward_with_logits(
-        self, batch: Seq2SeqBatch
-    ) -> Tuple[Tensor, Tensor, BatchLayout, Tensor | None, BatchLayout | None]:
+    def _forward_with_logits(self, batch: Seq2SeqBatch) -> Tuple[
+        Tensor,
+        Tensor,
+        BatchLayout,
+        Tensor | None,
+        List[int] | None,
+        List[dict] | None,
+    ]:
         """
         :return: loss, logits, layout, context_logits (optional), context_layout (optional)
         """
-        if isinstance(self._model.module, Wav2Vec2LlamaModel):
+        if isinstance(self._model.base_module, Wav2Vec2LlamaModel):
             # Llama model requires batch.extras for constructing the input batch
             return self._model.module(batch, return_logits=True)  # type: ignore[call-overload]
         else:
@@ -107,14 +118,14 @@ class Wav2Vec2AsrCriterion:
                 target_seqs_layout,
                 return_logits=True,
             )
-            return loss, logits, logits_layout, None, None
+            return loss, logits, logits_layout, None, None, None
 
     def _forward(self, batch: Seq2SeqBatch) -> Tensor | Tuple[Tensor, BatchLayout]:
         """
         :return: Tensor (default) - CTC Loss
         :return: tuple[Tensor, BatchLayout] (if target_seqs == None) - logits, layout
         """
-        if isinstance(self._model.module, Wav2Vec2LlamaModel):
+        if isinstance(self._model.base_module, Wav2Vec2LlamaModel):
             # Llama model requires batch.extras for constructing the input batch
             return self._model.module(batch)  # type: ignore
         else:

@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 model:
-  name: "omniASR_LLM_300M"
+  name: "omniASR_LLM_1B"
 
 dataset:
   name: "example_dataset"
@@ -17,24 +17,27 @@ dataset:
     dataset_summary_path: "/path/to/your/dataset/language_distribution_0.tsv"
     beta_corpus: 0.5
     beta_language: 0.5
-    fragment_loading:
-      cache: True
   asr_task_config:
      min_audio_len: 32_000
-     max_audio_len: 960_000
-     max_num_elements: 960_000
+     max_audio_len: 320_000
+     max_num_elements: 320_000
      batch_shuffle_window: 1
      normalize_audio: true
      example_shuffle_window: 1
 
 tokenizer:
-  name: "omniASR_tokenizer"
+  name: "omniASR_tokenizer_v1"
 
 optimizer:
   config:
     lr: 5e-05
 
 trainer:
+  data_parallelism: "fsdp"
+  fsdp:
+    granularity: "stack"
+    version: "v1"
+    fp32_reduce: false
   freeze_encoder_for_n_steps: 0
   mixed_precision:
     dtype: "torch.bfloat16"
@@ -44,6 +47,6 @@ trainer:
 regime:
   num_steps: 20_000
   validate_after_n_steps: 0
-  validate_every_n_steps: 1000
+  validate_every_n_steps: 1
   checkpoint_every_n_steps: 1000
-  publish_metrics_every_n_steps: 200
+  publish_metrics_every_n_steps: 1

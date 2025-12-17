@@ -85,15 +85,15 @@ class MixtureParquetStorageConfig(StorageConfig):
         default_factory=lambda: FragmentLoadingConfig(
             columns=NamedColumns(),  # Can't use LangASRSchema here, using global namespace instead
             rename_columns=True,
-            add_fragment_traces=False,  # override from default
-            drop_null=False,  # override from default
+            add_fragment_traces=False,
+            drop_null=False,
             min_batch_size=1,
             filters=None,
             non_deterministic_read=False,
             use_threads=False,
-            nb_prefetch=1,  # override from default 0
+            nb_prefetch=1,
             num_parallel_fragments=1,
-            cache=True,  # override from default
+            cache=True,
             cache_dir=None,
         )
     )

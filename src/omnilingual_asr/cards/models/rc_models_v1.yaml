@@ -4,13 +4,13 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-name: omniASR_tokenizer
+name: omniASR_tokenizer_v1
 tokenizer_family: char_tokenizer
 tokenizer: https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer.model
 
 ---
 
-name: omniASR_tokenizer_v7
+name: omniASR_tokenizer_v1_variant7
 tokenizer_family: char_tokenizer
 tokenizer: https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer_v7.model
 
@@ -48,7 +48,7 @@ name: omniASR_CTC_300M
 model_family: wav2vec2_asr
 model_arch: 300m
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-300M.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 
 ---
 
@@ -56,7 +56,7 @@ name: omniASR_CTC_1B
 model_family: wav2vec2_asr
 model_arch: 1b
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-1B.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 
 ---
 
@@ -64,7 +64,7 @@ name: omniASR_CTC_3B
 model_family: wav2vec2_asr
 model_arch: 3b
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-3B.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 
 ---
 
@@ -72,7 +72,7 @@ name: omniASR_CTC_7B
 model_family: wav2vec2_asr
 model_arch: 7b
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-CTC-7B.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 
 ---
 
@@ -80,7 +80,7 @@ name: omniASR_LLM_300M
 model_family: wav2vec2_llama
 model_arch: 300m
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-300M.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 
 ---
 
@@ -88,7 +88,7 @@ name: omniASR_LLM_1B
 model_family: wav2vec2_llama
 model_arch: 1b
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-1B.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 
 ---
 
@@ -96,15 +96,15 @@ name: omniASR_LLM_3B
 model_family: wav2vec2_llama
 model_arch: 3b
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-3B.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 
 ---
 
 name: omniASR_LLM_7B
 model_family: wav2vec2_llama
-model_arch: 7b
+model_arch: 7b_v1_variant7
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B.pt
-tokenizer_ref: omniASR_tokenizer_v7
+tokenizer_ref: omniASR_tokenizer_v1_variant7
 
 ---
 
@@ -112,4 +112,4 @@ name: omniASR_LLM_7B_ZS
 model_family: wav2vec2_llama
 model_arch: 7b_zs
 checkpoint: https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B-ZS.pt
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1

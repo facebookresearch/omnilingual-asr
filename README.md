@@ -18,6 +18,11 @@ Omnilingual ASR is an open-source speech recognition system supporting over 1,60
 </div>
 
 
+## December 2025 Update
+We release two suites of models:
+- Checkpoints of improved accuracy (CER) for the CTC and LLM-ASR models compared to our existing LLM-ASR model (`omniASR_{CTC,LLM}_{300M,1B,3B,7B}_v2`).
+- A new variant of the LLM-ASR model that supports decoding on unlimited audio length (`omniASR_LLM_Unlimited_{300M,1B,3B,7B}_v2`). The unlimited audio length models are briefly described in the [architecture overview section](src/omnilingual_asr/models/README.md). It's accuracy is comparable to limited audio length models, however finetuning recipies for this model are currently not supported.
+
 ## Documentation
 
 ### Quick Start
@@ -54,8 +59,7 @@ uv add omnilingual-asr
 ```python
 from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
 
-pipeline = ASRInferencePipeline(model_card="omniASR_LLM_7B")
-
+pipeline = ASRInferencePipeline(model_card="omniASR_LLM_Unlimited_7B_v2")
 audio_files = ["/path/to/eng_audio1.flac", "/path/to/deu_audio2.wav"]
 lang = ["eng_Latn", "deu_Latn"]
 transcriptions = pipeline.transcribe(audio_files, lang=lang, batch_size=2)
@@ -63,7 +67,7 @@ transcriptions = pipeline.transcribe(audio_files, lang=lang, batch_size=2)
 
 More details on running specific models can be found in the [src/omnilingual_asr/models/inference](/src/omnilingual_asr/models/inference/README.md) directory.
 
-> **⚠️ Important:** Currently only audio files shorter than 40 seconds are accepted for inference. We plan to add support for transcribing unlimited-length audio files shortly.
+> **⚠️ Important:** Currently only audio files shorter than 40 seconds are accepted for inference on CTC and LLM model suites.
 
 ### Supported Languages
 
@@ -105,7 +109,7 @@ audio_data = [{"waveform": x["array"], "sample_rate": x["sampling_rate"]}
               for x in batch["audio"]]
 
 # Run inference
-pipeline = ASRInferencePipeline(model_card="omniASR_LLM_7B")
+pipeline = ASRInferencePipeline(model_card="omniASR_LLM_7B_v2")
 transcriptions = pipeline.transcribe(audio_data, batch_size=2)
 
 # Display results
@@ -117,7 +121,7 @@ for i, (transcription, original_text) in enumerate(zip(transcriptions, batch["ra
 
 
 ## Model Architectures
-<!-- TODO : add new tokenizer, we'll get two tokenizer, add missing speed numbers-->
+
 | Model Name          | Features      | Parameters | Download Size (FP32) | Inference VRAM¹ | Real-Time Factor¹ (relative speed)² |
 |---------------------|---------------|------------:|---------------:|---------------:|-----------:|
 | [`omniASR_W2V_300M`](https://dl.fbaipublicfiles.com/mms/omniASR-W2V-300M.pt)      | SSL  | 317_390_592   | 1.2 GiB | | |
@@ -128,18 +132,32 @@ for i, (transcription, original_text) in enumerate(zip(transcriptions, batch["ra
 | [`omniASR_CTC_1B`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-1B.pt)          | ASR  | 975_065_300   | 3.7 GiB   | ~3 GiB  | 0.002 (48x) |
 | [`omniASR_CTC_3B`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-3B.pt)          | ASR  | 3_080_423_636 | 12.0 GiB  | ~8 GiB  | 0.003 (32x) |
 | [`omniASR_CTC_7B`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-7B.pt)          | ASR  | 6_504_786_132 | 25.0 GiB  | ~15 GiB | 0.006 (16x) |
+| [`omniASR_CTC_300M_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-300M-v2.pt)      | ASR  | 325_494_996   | 1.3 GiB   | ~2 GiB  | 0.001 (96x) |
+| [`omniASR_CTC_1B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-1B-v2.pt)          | ASR  | 975_065_300   | 3.7 GiB   | ~3 GiB  | 0.002 (48x) |
+| [`omniASR_CTC_3B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-3B-v2.pt)          | ASR  | 3_080_423_636 | 12.0 GiB  | ~8 GiB  | 0.003 (32x) |
+| [`omniASR_CTC_7B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-CTC-7B-v2.pt)          | ASR  | 6_504_786_132 | 25.0 GiB  | ~15 GiB | 0.006 (16x) |
 | [`omniASR_LLM_300M`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-300M.pt)      | ASR with optional language conditioning  | 1_627_603_584 | 6.1 GiB   | ~5 GiB  | 0.090 (~1x) |
 | [`omniASR_LLM_1B`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-1B.pt)          | ASR with optional language conditioning  | 2_275_710_592 | 8.5 GiB   | ~6 GiB  | 0.091 (~1x) |
 | [`omniASR_LLM_3B`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-3B.pt)          | ASR with optional language conditioning  | 4_376_679_040 | 17.0 GiB  | ~10 GiB | 0.093 (~1x) |
 | [`omniASR_LLM_7B`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B.pt)          | ASR with optional language conditioning  | 7_801_041_536 | 30.0 GiB  | ~17 GiB | 0.092 (~1x) |
+| [`omniASR_LLM_300M_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-300M-v2.pt)      | ASR with optional language conditioning  | 1_627_603_584 | 6.1 GiB   | ~5 GiB  | 0.090 (~1x) |
+| [`omniASR_LLM_1B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-1B-v2.pt)          | ASR with optional language conditioning  | 2_275_710_592 | 8.5 GiB   | ~6 GiB  | 0.091 (~1x) |
+| [`omniASR_LLM_3B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-3B-v2.pt)          | ASR with optional language conditioning  | 4_376_679_040 | 17.0 GiB  | ~10 GiB | 0.093 (~1x) |
+| [`omniASR_LLM_7B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B-v2.pt)          | ASR with optional language conditioning  | 7_801_041_536 | 30.0 GiB  | ~17 GiB | 0.092 (~1x) |
+| [`omniASR_LLM_Unlimited_300M_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-Unlimited-300M-v2.pt)      | omniASR_LLM_300M + unlimited audio length  | 1_627_603_584 | 6.1 GiB   | ~5 GiB | 0.092 (~1x) (0.206)³ |
+| [`omniASR_LLM_Unlimited_1B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-Unlimited-1B-v2.pt)          | omniASR_LLM_1B + unlimited audio length  | 2_275_710_592 | 8.5 GiB   | ~6 GiB | 0.097 (~1x) (0.207)³ |
+| [`omniASR_LLM_Unlimited_3B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-Unlimited-3B-v2.pt)          | omniASR_LLM_3B + unlimited audio length  | 4_376_679_040 | 17.0 GiB  | ~10 GiB | 0.095 (~1x) (0.208)³ |
+| [`omniASR_LLM_Unlimited_7B_v2`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-Unlimited-7B-v2.pt)          | omniASR_LLM_7B + unlimited audio length  | 7_801_041_536 | 30.0 GiB  | ~17 GiB | 0.097 (~1x) (0.208)³ |
 | [`omniASR_LLM_7B_ZS`](https://dl.fbaipublicfiles.com/mms/omniASR-LLM-7B-ZS.pt)    | Zero-Shot ASR | 7_810_900_608 | 30.0 GiB | ~20 GiB | 0.194 (~0.5x) |
-| [`omniASR_tokenizer`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer.model) | Tokenizer for most of architectures (except omniASR_LLM_7B) | - | 100 KiB | - |
-| [`omniASR_tokenizer_v7`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer_v7.model) | Tokenizer for omniASR_LLM_7B model | - | 100 KiB | - ||
+| [`omniASR_tokenizer_v1`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer.model) | Tokenizer for all non-v2 models except omniASR_LLM_7B | - | 100 KiB | - |
+| [`omniASR_tokenizer_v1_variant7`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer_v7.model) | Tokenizer for the omniASR_LLM_7B architecture | - | 100 KiB | - |
+| [`omniASR_tokenizer_written_v2`](https://dl.fbaipublicfiles.com/mms/omniASR_tokenizer_written_v2.model) | Tokenizer for all v2 architectures | - | 100 KiB | - ||
 
 ¹ (batch=1, audio_len=30s, BF16, A100)
 
 ² Relative speed to `omniASR_LLM_7B`
 
+³ (batch=1, audio_len=15min, BF16, A100)
 
 ### Model Download & Storage
 
@@ -165,12 +183,15 @@ Omnilingual ASR code and models are released under the [Apache 2.0](./LICENSE).
 
 ## Citation
 
-If you use the omnilingual ASR model suite in your research and wish to cite us, please use the following BibTeX entry (arxiv version will be added soon)!
+If you use the omnilingual ASR model suite in your research and wish to cite us, please use the following BibTeX entry!
 ```bibtex
-@misc{omnilingualasr2025,
-    title={{Omnilingual ASR}: Open-Source Multilingual Speech Recognition for 1600+ Languages},
-    author={{Omnilingual ASR Team} and Keren, Gil and Kozhevnikov, Artyom and Meng, Yen and Ropers, Christophe and Setzler, Matthew and Wang, Skyler and Adebara, Ife and Auli, Michael and Balioglu, Can and Chan, Kevin and Cheng, Chierh and Chuang, Joe and Droof, Caley and Duppenthaler, Mark and Duquenne, Paul-Ambroise and Erben, Alexander and Gao, Cynthia and Mejia Gonzalez, Gabriel and Lyu, Kehan and Miglani, Sagar and Pratap, Vineel and Sadagopan, Kaushik Ram and Saleem, Safiyyah and Turkatenko, Arina and Ventayol-Boada, Albert and Yong, Zheng-Xin and Chung, Yu-An and Maillard, Jean and Moritz, Rashel and Mourachko, Alexandre and Williamson, Mary and Yates, Shireen},
-    year={2025},
-    url={https://ai.meta.com/research/publications/omnilingual-asr-open-source-multilingual-speech-recognition-for-1600-languages/},
+@misc{omnilingualasrteam2025omnilingualasropensourcemultilingual,
+      title={Omnilingual ASR: Open-Source Multilingual Speech Recognition for 1600+ Languages},
+      author={Omnilingual ASR team and Gil Keren and Artyom Kozhevnikov and Yen Meng and Christophe Ropers and Matthew Setzler and Skyler Wang and Ife Adebara and Michael Auli and Can Balioglu and Kevin Chan and Chierh Cheng and Joe Chuang and Caley Droof and Mark Duppenthaler and Paul-Ambroise Duquenne and Alexander Erben and Cynthia Gao and Gabriel Mejia Gonzalez and Kehan Lyu and Sagar Miglani and Vineel Pratap and Kaushik Ram Sadagopan and Safiyyah Saleem and Arina Turkatenko and Albert Ventayol-Boada and Zheng-Xin Yong and Yu-An Chung and Jean Maillard and Rashel Moritz and Alexandre Mourachko and Mary Williamson and Shireen Yates},
+      year={2025},
+      eprint={2511.09690},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2511.09690},
 }
 ```

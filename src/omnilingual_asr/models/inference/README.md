@@ -8,7 +8,7 @@ Quick start guide for transcribing audio with our multilingual ASR models.
 
 ```python
 from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
-pipeline = ASRInferencePipeline(model_card="omniASR_CTC_1B")
+pipeline = ASRInferencePipeline(model_card="omniASR_CTC_1B_v2")
 transcriptions = pipeline.transcribe(["/path/to/audio1.flac"], batch_size=1)
 print(transcriptions[0])
 ```
@@ -39,7 +39,7 @@ The audio data is optionally decoded (`.wav/.flac`), resampled to 16kHz, convert
 ```python
 from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
 
-pipeline = ASRInferencePipeline(model_card="omniASR_CTC_1B")
+pipeline = ASRInferencePipeline(model_card="omniASR_CTC_1B_v2")
 
 audio_files = ["/path/to/audio1.flac", "/path/to/audio2.wav"]
 transcriptions = pipeline.transcribe(audio_files, batch_size=2)
@@ -54,12 +54,12 @@ for file, trans in zip(audio_files, transcriptions):
 
 ### 3.1 Parallel Generation with CTC Models
 
-The `omniASR_CTC_{300M,1B,3B,7B}` models are most useful for their parallel generation capabilities, resulting in faster throughput. Note that they don't support language conditioning or context examples.
+The `omniASR_CTC_{300M,1B,3B,7B}_v2` models are most useful for their parallel generation capabilities, resulting in faster throughput. Note that they don't support language conditioning or context examples.
 
 ```python
 from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
 
-pipeline = ASRInferencePipeline(model_card="omniASR_CTC_3B", device=None)
+pipeline = ASRInferencePipeline(model_card="omniASR_CTC_3B_v2", device=None)
 
 audio_files = ["/path/to/audio1.flac", "/path/to/audio2.wav"]
 transcriptions = pipeline.transcribe(audio_files, batch_size=2)
@@ -70,7 +70,7 @@ for file_path, text in zip(audio_files, transcriptions):
 
 ### 3.2 Autoregressive Generation with Language-conditioned LLM Models
 
-The `omniASR_LLM_{300M,1B,3B,7B}` models take an optional language code as argument to guide transcription towards the target language and script.
+The `omniASR_LLM_{300M,1B,3B,7B}_v2` and `omniASR_LLM_Unlimited_{300M,1B,3B,7B}_v2` models take an optional language code as argument to guide transcription towards the target language and script.
 The language codes can be found in [lang_ids.py](/src/omnilingual_asr/models/wav2vec2_llama/lang_ids.py) and the language to language-id mapping is described in [our paper (Appendix A)](https://ai.meta.com/research/publications/omnilingual-asr-open-source-multilingual-speech-recognition-for-1600-languages/).
 
 > [!TIP]
@@ -79,7 +79,7 @@ The language codes can be found in [lang_ids.py](/src/omnilingual_asr/models/wav
 ```python
 from omnilingual_asr.models.inference.pipeline import ASRInferencePipeline
 
-pipeline = ASRInferencePipeline(model_card="omniASR_LLM_1B")
+pipeline = Wav2Vec2InferencePipeline(model_card="omniASR_LLM_Unlimited_1B_v2")
 
 audio_files = ["/path/to/russian_audio.wav", "/path/to/english_audio.flac", "/path/to/german_audio.wav"]
 
@@ -131,7 +131,7 @@ ds = pq.ParquetDataset("/path/to/dataset/")
 batch_data = ds._dataset.head(10).to_pandas()  # taking only few first samples
 audio_bytes = batch_data["audio_bytes"].tolist()
 
-pipeline = ASRInferencePipeline(model_card="omniASR_LLM_1B")
+pipeline = ASRInferencePipeline(model_card="omniASR_LLM_1B_v2")
 transcriptions = pipeline.transcribe(audio_bytes, batch_size=4)
 
 for i, text in enumerate(transcriptions):
@@ -152,7 +152,7 @@ batch = next(omni_dataset.iter(5))
 audio_data = [{"waveform": x["array"], "sample_rate": x["sampling_rate"]}
               for x in batch["audio"]]
 
-pipeline = ASRInferencePipeline(model_card="omniASR_LLM_1B")
+pipeline = ASRInferencePipeline(model_card="omniASR_LLM_1B_v2")
 transcriptions = pipeline.transcribe(audio_data, batch_size=2)
 
 for i, text in enumerate(transcriptions):
@@ -214,15 +214,6 @@ Our batch has some `lang_tokens` as part of the `batch.example` parameter, but t
   )
 ```
 
-### 4.4 Performance Optimization
-
-This inference implementation serves as a reference baseline using PyTorch with BF16 precision and basic KV-caching. We've [benchmarked](/tests/integrations/test_performance_benchmark.py) Real-Time Factor (RTF) on an A100 for single-request setups — the kind you'd encounter when running locally — to give you a sense of what to expect (see [profiling results](/README.md#model-architectures)).
-
-> [!TIP]
-> These results are significantly memory-bottlenecked, meaning we spend more time shuffling the model in and out of tensor core memory than actually computing (~2TB/s memory bandwidth).
-> As a rough guide, you can expect throughput to scale with memory bandwidth - about 1.75x faster on H100s (~3.5TB/s) and 0.5x on V100s (~1TB/s).
-
-
-### 4.5 Punctuation and Capitalization
+### 4.4 Punctuation and Capitalization
 
 Our models are trained to output transcripts in spoken form without any punctuation or capitalization. If you would like transcripts in written form, we recommend passing our model's outputs through a third-party library to add punctuation, such as [this one](https://github.com/oliverguhr/deepmultilingualpunctuation). Note, however, that most punctuation libraries only cover a small subset of the 1600+ languages supported by our model.

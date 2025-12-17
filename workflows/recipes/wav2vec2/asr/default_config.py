@@ -121,7 +121,7 @@ class Wav2Vec2AsrRecipeConfig:
     )
 
     tokenizer: TokenizerSection = field(
-        default_factory=lambda: TokenizerSection(name="omniASR_tokenizer")
+        default_factory=lambda: TokenizerSection(name="omniASR_tokenizer_v1")
     )
 
     gang: GangSection = field(default_factory=lambda: GangSection())

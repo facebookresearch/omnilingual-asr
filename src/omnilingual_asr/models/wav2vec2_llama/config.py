@@ -24,6 +24,59 @@ class ModelType(Enum):
     ZERO_SHOT = 3
 
 
+@dataclass
+class Wav2Vec2LlamaSpecialTokens:
+    """Special token indices allocated as vocab_size + offset.
+
+    Different syntaxes use different schemas.
+    """
+
+    vocab_size: int
+
+    # Default/LID syntax
+    @property
+    def lid_marker(self) -> int:
+        return self.vocab_size
+
+    # Streaming syntax
+    @property
+    def streaming_lang(self) -> int:
+        return self.vocab_size
+
+    @property
+    def last_segment(self) -> int:
+        return self.vocab_size + 1
+
+    @property
+    def regular_segment(self) -> int:
+        return self.vocab_size + 2
+
+    # Context syntax (text_context + zero_shot)
+    @property
+    def context_start(self) -> int:
+        return self.vocab_size
+
+    @property
+    def context_end(self) -> int:
+        return self.vocab_size + 1
+
+    @property
+    def context_example_start(self) -> int:
+        return self.vocab_size + 2
+
+    @property
+    def context_example_end(self) -> int:
+        return self.vocab_size + 3
+
+    @property
+    def context_bos(self) -> int:
+        return self.vocab_size + 4
+
+    @property
+    def context_eos(self) -> int:
+        return self.vocab_size + 5
+
+
 @dataclass(kw_only=True)
 class Wav2Vec2LlamaBeamSearchConfig:
     """Contains the settings for the LLM-ASR beam search."""
@@ -42,6 +95,16 @@ class Wav2Vec2LlamaBeamSearchConfig:
 
 
 @dataclass(kw_only=True)
+class Wav2Vec2LlamaStreamingConfig:
+    is_streaming: bool = False
+    segment_secs: float = 15.0
+    sample_rate: int = 16000
+    n_context_segments: int = 1  # Additional to the transcribed segment
+    text_tokenizer: str = ""
+    min_audio_ms: int = 25
+
+
+@dataclass(kw_only=True)
 class Wav2Vec2LlamaConfig:
     """Model configuration for the Wav2Vec2 Llama-based model.
     Holds individual configuration of Wav2Vec2Asr (frontend + encoder), Llama (decoder).
@@ -57,6 +120,11 @@ class Wav2Vec2LlamaConfig:
         default_factory=lambda: Wav2Vec2LlamaBeamSearchConfig()
     )
     """Beam search configuration for LLM-ASR decoding."""
+
+    streaming_config: Wav2Vec2LlamaStreamingConfig = field(
+        default_factory=lambda: Wav2Vec2LlamaStreamingConfig()
+    )
+    """Streaming configuration for >30s transcriptions."""
 
     encoder_stacking: int = 1
     """The number audio embeddings frames to stack before the decoder calls."""
@@ -127,8 +195,10 @@ def register_wav2vec2_llama_configs(container: DependencyContainer) -> None:
     # Explicit default due to almost no config reuse
     default_pad_idx = Wav2Vec2LlamaConfig.pad_idx
 
-    @arch("7b", advanced=True)
-    def _7b_llama(resolver: DependencyResolver) -> Wav2Vec2LlamaConfig:
+    # Base configurations
+
+    @arch("7b_v1_variant7", advanced=True)
+    def _7b_llama_v1_variant7(resolver: DependencyResolver) -> Wav2Vec2LlamaConfig:
         wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "7b")
         llama_config = LLaMAConfig(
             model_dim=4096,
@@ -155,37 +225,60 @@ def register_wav2vec2_llama_configs(container: DependencyContainer) -> None:
         config.model_type = ModelType.LLM_ASR_LID
         return config
 
-    @arch("300m", advanced=True)
-    def _300m_llama(
-        resolver: DependencyResolver,
-    ) -> Wav2Vec2LlamaConfig:
-        config = _7b_llama(resolver)
-        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "300m")
-        vocab_size = 9812
-        config.llama_config.vocab_size = vocab_size
-        config.wav2vec2_asr_config.target_vocab_size = vocab_size
+    @arch("7b", advanced=True)
+    def _7b_llama(resolver: DependencyResolver) -> Wav2Vec2LlamaConfig:
+        wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "7b")
+        llama_config = LLaMAConfig(
+            model_dim=4096,
+            max_seq_len=8192,
+            vocab_size=wav2vec2_asr_config.target_vocab_size,
+            pad_idx=default_pad_idx,
+            num_layers=12,
+            num_attn_heads=8,
+            num_key_value_heads=8,
+            ffn_inner_dim=4096,
+            rope_theta=10_000.0,
+            dropout_p=0.1,
+        )
+        target_vocab_size = 9812
+        llama_config.vocab_size = target_vocab_size
+        llama_config.pad_idx = 1
+        wav2vec2_asr_config.target_vocab_size = target_vocab_size
+
+        config = Wav2Vec2LlamaConfig(
+            wav2vec2_asr_config=wav2vec2_asr_config, llama_config=llama_config
+        )
+        config.lang_embeddings_p = 0.5
+        config.n_special_tokens = 1
+        config.model_type = ModelType.LLM_ASR_LID
         return config
 
-    @arch("1b", advanced=True)
-    def _1b_llama(
-        resolver: DependencyResolver,
-    ) -> Wav2Vec2LlamaConfig:
-        config = _7b_llama(resolver)
-        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "1b")
-        vocab_size = 9812
-        config.llama_config.vocab_size = vocab_size
-        config.wav2vec2_asr_config.target_vocab_size = vocab_size
-        return config
+    @arch("7b_v2", advanced=True)
+    def _7b_llama_v2(resolver: DependencyResolver) -> Wav2Vec2LlamaConfig:
+        wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "7b")
+        llama_config = LLaMAConfig(
+            model_dim=4096,
+            max_seq_len=8192,
+            vocab_size=wav2vec2_asr_config.target_vocab_size,
+            pad_idx=default_pad_idx,
+            num_layers=12,
+            num_attn_heads=8,
+            num_key_value_heads=8,
+            ffn_inner_dim=4096,
+            rope_theta=10_000.0,
+            dropout_p=0.1,
+        )
+        target_vocab_size = 10288
+        llama_config.vocab_size = target_vocab_size
+        llama_config.pad_idx = 1
+        wav2vec2_asr_config.target_vocab_size = target_vocab_size
 
-    @arch("3b", advanced=True)
-    def _3b_llama(
-        resolver: DependencyResolver,
-    ) -> Wav2Vec2LlamaConfig:
-        config = _7b_llama(resolver)
-        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "3b")
-        vocab_size = 9812
-        config.llama_config.vocab_size = vocab_size
-        config.wav2vec2_asr_config.target_vocab_size = vocab_size
+        config = Wav2Vec2LlamaConfig(
+            wav2vec2_asr_config=wav2vec2_asr_config, llama_config=llama_config
+        )
+        config.lang_embeddings_p = 0.5
+        config.n_special_tokens = 1
+        config.model_type = ModelType.LLM_ASR_LID
         return config
 
     @arch("7b_zs", advanced=True)
@@ -200,4 +293,95 @@ def register_wav2vec2_llama_configs(container: DependencyContainer) -> None:
         vocab_size = 9812
         config.llama_config.vocab_size = vocab_size
         config.wav2vec2_asr_config.target_vocab_size = vocab_size
+        return config
+
+    @arch("7b_unlimited_v2", advanced=True)
+    def _7b_llama_unlimited_v2(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama_v2(resolver)
+        config.n_special_tokens = 3
+        config.lang_embeddings_p = 0.8
+        config.streaming_config = Wav2Vec2LlamaStreamingConfig(
+            is_streaming=True,
+            text_tokenizer="omniASR_tokenizer_written_v2",
+        )
+        return config
+
+    # Base model flavors
+
+    @arch("3b", advanced=True)
+    def _3b_llama(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "3b")
+        return config
+
+    @arch("1b", advanced=True)
+    def _1b_llama(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "1b")
+        return config
+
+    @arch("300m", advanced=True)
+    def _300m_llama(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "300m")
+        return config
+
+    # Base v2 model flavors
+
+    @arch("3b_v2", advanced=True)
+    def _3b_llama_v2(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama_v2(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "3b")
+        return config
+
+    @arch("1b_v2", advanced=True)
+    def _1b_llama_v2(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama_v2(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "1b")
+        return config
+
+    @arch("300m_v2", advanced=True)
+    def _300m_llama_v2(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama_v2(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "300m")
+        return config
+
+    # Base streaming model flavors
+
+    @arch("300m_unlimited_v2", advanced=True)
+    def _300m_llama_unlimited_v2(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama_unlimited_v2(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "300m")
+        return config
+
+    @arch("1b_unlimited_v2", advanced=True)
+    def _1b_llama_unlimited_v2(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama_unlimited_v2(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "1b")
+        return config
+
+    @arch("3b_unlimited_v2", advanced=True)
+    def _3b_llama_unlimited_v2(
+        resolver: DependencyResolver,
+    ) -> Wav2Vec2LlamaConfig:
+        config = _7b_llama_unlimited_v2(resolver)
+        config.wav2vec2_asr_config = get_config(resolver, Wav2Vec2AsrConfig, "3b")
         return config

@@ -192,7 +192,7 @@ python -m workflows.dataprep.dataloader_example \
 ```
 
 This will:
-1. Load the `omniASR_tokenizer`
+1. Load the `omniASR_tokenizer_v1`
 2. Create the dataset (which will scan all files and organize them by corpus and language)
 3. Create a data reader using task_config and storage_config
 4. Iterate through a few batches and show statistics
@@ -232,7 +232,7 @@ name: my_dataset
 dataset_family: mixture_parquet_asr_dataset
 dataset_config:
   data: /path/to/the/dataset
-tokenizer_ref: omniASR_tokenizer
+tokenizer_ref: omniASR_tokenizer_v1
 ```
 
 After the asset card is defined, you can simply reference its `name` in the recipe configuration file to query it during training or evaluation.

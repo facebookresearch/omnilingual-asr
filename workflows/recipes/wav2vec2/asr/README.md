@@ -30,7 +30,7 @@ Set an output directory for the resulting artifacts (model checkpoints during tr
 ```bash
 > cd omnilingual_asr
 > export OUTPUT_DIR="/path/to/artifact/directory"
-> python -m workflows.recipes.asr $OUTPUT_DIR --config-file workflows/recipes/asr/configs/ctc-finetune.yaml
+> python -m workflows.recipes.wav2vec2.asr $OUTPUT_DIR --config-file workflows/recipes/wav2vec2/asr/configs/ctc-finetune.yaml
 ```
 
 ## Core Recipe Structure

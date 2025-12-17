@@ -5,18 +5,25 @@
 # LICENSE file in the root directory of this source tree.
 
 import zlib
-from typing import Tuple, final
+from typing import List, Tuple, final
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from fairseq2.datasets import Seq2SeqBatch
 from fairseq2.logging import get_log_writer
 from fairseq2.nn import BatchLayout, IncrementalStateBag
-from fairseq2.recipe.base import RecipeContext
 from torch import Tensor
 
-from omnilingual_asr.models.wav2vec2_llama.config import Wav2Vec2LlamaBeamSearchConfig
-from omnilingual_asr.models.wav2vec2_llama.model import Wav2Vec2LlamaModel
+from omnilingual_asr.models.wav2vec2_llama.config import (
+    Wav2Vec2LlamaBeamSearchConfig,
+    Wav2Vec2LlamaStreamingConfig,
+)
+from omnilingual_asr.models.wav2vec2_llama.model import (
+    Modality,
+    ModalityInput,
+    Wav2Vec2LlamaModel,
+)
 
 log = get_log_writer(__name__)
 
@@ -34,62 +41,315 @@ class Wav2Vec2LlamaBeamSearchSeq2SeqGenerator:
         self,
         model: Wav2Vec2LlamaModel,
         config: Wav2Vec2LlamaBeamSearchConfig,
+        streaming_config: Wav2Vec2LlamaStreamingConfig,
     ) -> None:
         self.model = model
         self.pad_idx = model.target_vocab_info.pad_idx
         self.eos_idx = model.target_vocab_info.eos_idx
         self.bos_idx = model.target_vocab_info.bos_idx
-        self.config = config
+        assert self.bos_idx is not None, "BOS token must be specified"
+        assert self.eos_idx is not None, "EOS token must be specified"
 
-    @classmethod
-    def from_context(
-        cls, context: RecipeContext
-    ) -> "Wav2Vec2LlamaBeamSearchSeq2SeqGenerator":
-        """Create generator from fairseq2 recipe context, extracting model and beam search config."""
-        return cls(
-            model=context.model.base_module,  # type: ignore
-            config=context.model.base_module.beam_search_config,  # type: ignore
-        )
+        self.config = config
+        self.streaming_config = streaming_config
 
     @staticmethod
     def idx_1d_to_2d(idx: Tensor, dim2: int) -> tuple[Tensor, Tensor]:
+        """Convert 1D indices to 2D indices for beam search tracking."""
         return idx // dim2, idx % dim2
 
     @staticmethod
     def compression_ratio(text: str) -> float:
+        """Calculate text compression ratio as heuristic for hallucination detection."""
         text_bytes = text.encode("utf-8")
         return len(text_bytes) / len(zlib.compress(text_bytes))
 
     @torch.no_grad()
     def generate_hypotheses(
         self,
-        decoder_context_inputs: Tensor,
-        decoder_context_input_layout: BatchLayout,
-    ) -> Tuple[Tensor, BatchLayout]:
+        decoder_context_inputs: List[Tensor] | None,
+        decoder_context_seq_lens: List[List[int]] | None,
+        audio_embeddings: List[ModalityInput] | None,
+        batch: Seq2SeqBatch | None,
+    ) -> Tuple[Tensor, List[int]]:
+        """Generate text hypotheses using beam search decoding.
+
+        For streaming mode, processes segments sequentially with caching.
+        For non-streaming mode, decodes entire sequence at once.
+        Returns top hypothesis tokens and their layout.
         """
-        Conducts a beam search to generate hypotheses for the LLM-ASR model. A high-level overview of the algorithm is as follows.
-        The algorithm is described for a single example for simplicity, however the code may operate on a batch of examples for better perforamnce.
 
-        Initialization and preparation:
-        Prefill the decoder_input matrix with the embeddings of context already computed by the model, which is everything up to but
-        exluding the <BOS> token. Feed the decoder the precomputed context.
+        if self.streaming_config.is_streaming:
+            assert audio_embeddings is not None
+            assert batch is not None
+            # In the streaming setting, we decode segments one by one,
+            # and concatenate segment hypotheses at the end.
+            # When decoding each segment, we create the syntax using the previous
+            # already decoded segments. We cache the audio embeddings to not recompute
+            # them (which is the largest GPU load).
+            assert isinstance(batch.example, dict)
+            n_segments = len(audio_embeddings)
+            n_context_segments = self.model.streaming_config.n_context_segments
+            previous_audio_embeddings: List[ModalityInput] = []
+            previous_text_tokens: List[ModalityInput] = []
+            languages: List[str] = batch.example.get(self.model.language_column_name, None)  # type: ignore
+            B = audio_embeddings[0].seqs.size(0)
+            device = audio_embeddings[0].seqs.device
 
-        Generation Loop:
-        Run the deocder on the latest generated token (or <BOS> at the first iterations), get emission scores.
-        Add the log proability scores to the current scores of the hypotheses, choose the new `nbest` hypotheses. Don't change
-        scores of hypos that already ended (emitted <EOS>). Decoding is done when all `nbest` hypotheses end with <EOS>.
+            # Decode segment by segment
+            for i in range(n_segments):
+                current_audio_embeddings = audio_embeddings[i].seqs
+                current_audio_embedding_seq_lens = audio_embeddings[i].seq_lens
 
-        Args:
-        decoder_context_inputs (Tensor):
-            The input tensor containing the previously embded context / prompt for the decoder. Everything up to and including the <BOS> toekn.
-        decoder_context_input_layout (BatchLayout):
-            The layout object describing the above tensor, specifically, the lengths of each row in the batch.
+                # Apply nonzero mask, to transcribe only samples that didn't end yet
+                nonzero_mask = torch.tensor(
+                    [x > 0 for x in current_audio_embedding_seq_lens], device=device
+                )
+                if i == 0 and not nonzero_mask.all():
+                    raise ValueError("First segment must be full for the entire batch")
+                current_audio_embeddings_nonzero = current_audio_embeddings[
+                    nonzero_mask
+                ]
+                current_audio_embedding_seq_lens_nonzero = [
+                    x for x in current_audio_embedding_seq_lens if x > 0
+                ]
+                n_total_segments_nonzero = batch.example["n_segments"][nonzero_mask]  # type: ignore
+                langs_nonzero = (
+                    [x[0] for x in zip(languages, nonzero_mask) if x[1]]
+                    if languages is not None
+                    else None
+                )
 
-        Returns:
-            Tuple[Tensor, BatchLayout]:
-                A tuple containing:
-                    - hypotheses (Tensor): The generated tokens for the batch.
-                    - batch_layout (BatchLayout): The layout object describing the length of the generated tokens in the batch.
+                previous_audio_embeddings_nonzero = [
+                    ModalityInput(
+                        modality=Modality.AUDIO,
+                        seqs=x.seqs[nonzero_mask],
+                        seq_lens=[
+                            x_[0] for x_ in zip(x.seq_lens, nonzero_mask) if x_[1] > 0
+                        ],
+                        loss=False,
+                    )
+                    for x in previous_audio_embeddings
+                ]
+                previous_text_tokens_nonzero = [
+                    ModalityInput(
+                        modality=Modality.TEXT,
+                        seqs=x.seqs[nonzero_mask],
+                        seq_lens=[
+                            x_[0] for x_ in zip(x.seq_lens, nonzero_mask) if x_[1] > 0
+                        ],
+                        loss=False,
+                    )
+                    for x in previous_text_tokens
+                ]
+
+                # Calculate n_segments, so that the last_segment token is applied on time in the syntax function.
+                # in case this is the last segment: min(n_segments, 1+n_context segments)
+                # otherwise, 2 + n_context segments (no last segment token)
+                n_total_segments_nonzero_adjusted = torch.where(  # type: ignore
+                    i == n_total_segments_nonzero - 1,  # type: ignore
+                    torch.clamp(n_total_segments_nonzero, max=1 + n_context_segments),
+                    2 + n_context_segments,
+                )
+
+                # Get tokens for this segment
+                segment_tokens, segment_token_seq_lens = (
+                    self.generate_hypotheses_one_segment_streaming(
+                        new_audio_embeddings=current_audio_embeddings_nonzero,
+                        new_audio_embedding_seq_lens=current_audio_embedding_seq_lens_nonzero,
+                        n_total_segments=n_total_segments_nonzero_adjusted,
+                        langs=langs_nonzero,
+                        previous_audio_embeddings=previous_audio_embeddings_nonzero,
+                        previous_text_tokens=previous_text_tokens_nonzero,
+                    )
+                )
+
+                # Revert nonzero mask
+                if not nonzero_mask.all():
+                    segment_tokens_full = torch.zeros(
+                        [B, segment_tokens.size(1)],
+                        device=device,
+                        dtype=segment_tokens.dtype,
+                    )
+                    segment_tokens_full[nonzero_mask] = segment_tokens
+                    segment_tokens = segment_tokens_full
+                    segment_token_seq_lens_full = [0] * B
+                    indices = nonzero_mask.nonzero()[:, 0]
+                    for i, val in zip(indices, segment_token_seq_lens):
+                        segment_token_seq_lens_full[i] = val  # type: ignore
+                    segment_token_seq_lens = segment_token_seq_lens_full
+
+                # Add results to use as context for next segment
+                previous_audio_embeddings.append(
+                    ModalityInput(
+                        modality=Modality.AUDIO,
+                        seqs=current_audio_embeddings,
+                        seq_lens=current_audio_embedding_seq_lens,
+                        loss=False,
+                    ),
+                )
+                previous_text_tokens.append(
+                    ModalityInput(
+                        modality=Modality.TEXT,
+                        seqs=segment_tokens,
+                        seq_lens=(
+                            list(segment_token_seq_lens)
+                            if segment_token_seq_lens is not None
+                            else [0] * len(segment_tokens)
+                        ),
+                        loss=False,
+                    ),
+                )
+
+            # Merge all segment tokens
+            token_lengths: List[torch.Tensor] = [
+                torch.tensor(inp.seq_lens) for inp in previous_text_tokens
+            ]
+
+            total_token_lengths: torch.Tensor = sum(token_lengths)  # type: ignore
+            max_length_ = int(total_token_lengths.int().max().item())
+            B = current_audio_embeddings.size(0)  # type: ignore
+            device = current_audio_embeddings.device  # type: ignore
+            dtype = previous_text_tokens[0].seqs.dtype
+
+            assert self.pad_idx is not None, "PAD token must be specified"
+            final_tokens = torch.full(
+                fill_value=self.pad_idx,
+                size=[B, max_length_],
+                device=device,
+                dtype=dtype,
+            )
+            for b in range(B):
+                b_tokens_ = [
+                    tokens.seqs[b, : length[b]]
+                    for (tokens, length) in zip(previous_text_tokens, token_lengths)
+                ]
+                b_tokens = torch.cat(b_tokens_, dim=0)
+                final_tokens[b, : b_tokens.size(0)] = b_tokens
+
+            final_token_lens = total_token_lengths.tolist()
+
+        else:
+            assert decoder_context_inputs is not None
+            assert decoder_context_seq_lens is not None
+            # Nonstreaming - treat everything as a single segment.
+            final_tokens, final_token_lens = self.generate_hypotheses_one_segment(
+                decoder_context_inputs=decoder_context_inputs[0],
+                decoder_context_seq_lens=decoder_context_seq_lens[0],
+            )
+
+        return final_tokens, final_token_lens
+
+    @torch.no_grad()
+    def generate_hypotheses_one_segment_streaming(
+        self,
+        new_audio_embeddings: torch.Tensor,
+        new_audio_embedding_seq_lens: List[int],
+        n_total_segments: Tensor,
+        langs: List[str],
+        previous_audio_embeddings: List[ModalityInput],
+        previous_text_tokens: List[ModalityInput],
+    ) -> tuple[Tensor, List[int]]:
+        """Decode a single segment using previous segments as context.
+
+        Builds streaming syntax with limited context window, caches embeddings,
+        and decodes current segment conditioned on previous outputs.
+        """
+        # Limit to n_context_segments
+        n_max_segments = self.model.streaming_config.n_context_segments
+        previous_audio_embeddings = previous_audio_embeddings[-n_max_segments:]
+        previous_text_tokens = previous_text_tokens[-n_max_segments:]
+
+        # Add to previous segments
+        previous_audio_embeddings.append(
+            ModalityInput(
+                modality=Modality.AUDIO,
+                seqs=new_audio_embeddings,
+                seq_lens=new_audio_embedding_seq_lens,
+                loss=False,
+            ),
+        )
+        # add a placeholder
+        previous_text_tokens.append(
+            ModalityInput(
+                modality=Modality.TEXT, seqs=torch.empty(1, 0), seq_lens=[0], loss=False
+            )
+        )
+
+        # Create batch
+        device = new_audio_embeddings.device
+        B = new_audio_embeddings.size(0)
+        batch = Seq2SeqBatch(
+            source_seqs=new_audio_embeddings,  # Not used for streaming inference
+            source_seq_lens=new_audio_embedding_seq_lens,  # Not used for streaming inference
+            target_seqs=torch.tensor(
+                [1] * B, dtype=torch.long, device=device
+            ).unsqueeze(
+                1
+            ),  # Not used for inference
+            target_seq_lens=list([1] * B),
+            example={
+                "audio_segments": previous_audio_embeddings,
+                "token_segments": previous_text_tokens,
+                "n_segments": n_total_segments,
+            },
+        )
+        if langs is not None:
+            batch.example["lang"] = langs  # type: ignore
+
+        # Create syntax
+        inputs = self.model.create_streaming_syntax(
+            batch=batch,
+            device=device,
+            inference=True,
+        )
+
+        # Set audio embeddings and mark them as embedded
+        loc = 0
+        for inp in inputs:
+            if inp.modality == Modality.AUDIO:
+                inp.seqs = previous_audio_embeddings[loc].seqs
+                inp.seq_lens = previous_audio_embeddings[loc].seq_lens
+                loc += 1
+                inp.embedded = True
+        assert loc == len(previous_audio_embeddings)
+
+        # Embed all other inputs except audio
+        inputs = self.model.embed_inputs(
+            inputs=inputs, dtype=new_audio_embeddings.dtype
+        )
+
+        # Concat decoder inputs
+        decoder_inputs, decoder_input_layout, _, _, _ = self.model.concat_inputs(
+            inputs=inputs
+        )
+
+        # Run beam search
+        final_tokens, final_token_lens = self.generate_hypotheses_one_segment(
+            decoder_context_inputs=decoder_inputs,
+            decoder_context_seq_lens=list(decoder_input_layout.seq_lens),
+        )
+        return final_tokens, final_token_lens
+
+    @torch.no_grad()
+    def generate_hypotheses_one_segment(
+        self,
+        decoder_context_inputs: Tensor,
+        decoder_context_seq_lens: List[int],
+    ) -> Tuple[Tensor, List[int]]:
+        """Generate hypotheses using beam search with context prefilling.
+
+        Expands each batch element into nbest beams. Prefills decoder inputs with
+        embedded context (audio, prompt, etc.) up to and including BOS token.
+
+        Generation loop:
+        - Decode latest token (BOS initially, then generated tokens)
+        - Add log probabilities to beam scores
+        - Select top nbest hypotheses
+        - Freeze scores for beams that emitted EOS
+        - Stop when all nbest beams in all batch elements have emitted EOS
+
+        Returns top hypothesis tokens and their lengths per batch element.
         """
         # Some init
         B = decoder_context_inputs.size(0)
@@ -111,9 +371,9 @@ class Wav2Vec2LlamaBeamSearchSeq2SeqGenerator:
         decoder_inputs[:, : decoder_context_inputs.size(1)] = (
             decoder_context_inputs.repeat_interleave(nbest, dim=0)
         )
-        context_lengths = decoder_context_input_layout.seq_lens_pt.repeat_interleave(
-            nbest
-        )
+        context_lengths = torch.tensor(
+            decoder_context_seq_lens, device=device
+        ).repeat_interleave(nbest)
 
         # Prepare a token self matrix and a scores matrix
         assert self.pad_idx is not None, "`pad_idx` must be specified"
@@ -262,6 +522,5 @@ class Wav2Vec2LlamaBeamSearchSeq2SeqGenerator:
             final_tokens[i, : valid_tokens_count[i]] = out_tokens[i][
                 valid_tokens_mask[i]
             ]
-        final_layout = BatchLayout.of(final_tokens, valid_tokens_count.tolist())
 
-        return final_tokens, final_layout
+        return final_tokens, valid_tokens_count.tolist()

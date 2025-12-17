@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple, final
+from typing import List, Sequence, Tuple, final
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from fairseq2.data.tokenizers import VocabularyInfo
+from fairseq2.data.tokenizers import TokenEncoder, VocabularyInfo
 from fairseq2.datasets.batch import Seq2SeqBatch
 from fairseq2.device import Device
 from fairseq2.logging import get_log_writer
@@ -26,6 +27,14 @@ from torch.nn.utils.rnn import pad_sequence
 from omnilingual_asr.models.wav2vec2_llama.config import (
     ModelType,
     Wav2Vec2LlamaBeamSearchConfig,
+    Wav2Vec2LlamaSpecialTokens,
+    Wav2Vec2LlamaStreamingConfig,
+)
+from omnilingual_asr.models.wav2vec2_llama.syntax import (
+    Modality,
+    ModalityInput,
+    create_lang_inputs,
+    create_single_char_input,
 )
 
 log = get_log_writer(__name__)
@@ -56,7 +65,10 @@ class Wav2Vec2LlamaModel(AsrModel):
         lang_mapping: dict[str, int] | None = None,
         context_text_only: bool = False,
         beam_search_config: Wav2Vec2LlamaBeamSearchConfig = Wav2Vec2LlamaBeamSearchConfig(),
+        streaming_config: Wav2Vec2LlamaStreamingConfig = Wav2Vec2LlamaStreamingConfig(),
+        text_encoder: TokenEncoder | None = None,
         n_context_examples: int = 0,
+        seed: int = 42,
     ) -> None:
         """
         :param model_type:
@@ -110,12 +122,15 @@ class Wav2Vec2LlamaModel(AsrModel):
         self.lang_embeddings = lang_embeddings
         self.lang_mapping = lang_mapping
         self.rng = torch.Generator()
-        self.rng.manual_seed(42)
+        self.rng.manual_seed(seed)
         self.audio_encoder_calls = 0
         self.language_column_name = language_column_name
         self.context_text_only = context_text_only
         self.beam_search_config = beam_search_config
         self.n_context_examples = n_context_examples
+        self.streaming_config = streaming_config
+        self.text_encoder = text_encoder
+        self.special_tokens = Wav2Vec2LlamaSpecialTokens(self.target_vocab_info.size)
 
         self.register_module("masker", masker)
 
@@ -130,8 +145,15 @@ class Wav2Vec2LlamaModel(AsrModel):
         return_decoder_inputs: bool = False,
     ) -> (
         Tensor
-        | Tuple[Tensor, BatchLayout]
-        | Tuple[Tensor, Tensor, BatchLayout, Tensor, BatchLayout]
+        | Tuple[List[Tensor], List[List[int]], List[ModalityInput]]
+        | Tuple[
+            Tensor,
+            Tensor,
+            BatchLayout,
+            List[Tensor],
+            List[List[int]],
+            List[ModalityInput],
+        ]
     ):
         """Model entry point, accepts a `Seq2Seq` batch and embeds the inputs w.r.t.
         their modality:
@@ -143,8 +165,8 @@ class Wav2Vec2LlamaModel(AsrModel):
 
         Returns:
         - (default): loss
-        - `return_decoder_inputs`: decoder_context, decoder_context_layout
-        - `return_logits=True`: loss, logits, logits_layout, decoder_context, decoder_context_layout
+        - `return_decoder_inputs=True`: decoder_context, decoder_context_seq_lens, audio_embeddings
+        - `return_logits=True`: loss, logits, decoder_inputs_layout, decoder_context_inputs, decoder_context_seq_lens, audio_embeddings
         """
         device = batch.source_seqs.device
         dtype = batch.source_seqs.dtype
@@ -163,32 +185,47 @@ class Wav2Vec2LlamaModel(AsrModel):
         )
 
         # Choose syntax by model type
-        match self.model_type:
-            case ModelType.LLM_ASR:
+        match (self.model_type, self.streaming_config.is_streaming):
+            case (ModelType.LLM_ASR, False):
                 inputs = self.create_default_syntax(batch, device)
-            case ModelType.LLM_ASR_LID:
-                inputs = self.create_default_syntax(batch, device)
-            case ModelType.ZERO_SHOT:
+            case (ModelType.ZERO_SHOT, False):
                 inputs = self.create_zero_shot_syntax(batch, device)
+            case (ModelType.LLM_ASR_LID, False):
+                inputs = self.create_default_syntax(batch, device)
+            case (ModelType.LLM_ASR_LID, True):
+                inputs = self.create_streaming_syntax(batch, device)
 
         # Embed all modalities
-        embedded = self.embed_inputs(inputs, dtype)
+        if self.training:
+            embedded = self.embed_inputs_training(inputs, dtype)  # type: ignore
+        else:
+            embedded = self.embed_inputs(inputs, dtype)  # type: ignore
 
+        # Extract embeddings for incremental decoding
+        audio_embeddings = [inp for inp in embedded if inp.modality == Modality.AUDIO]
         # Concat all decoder inputs
         (
             decoder_inputs,
             decoder_inputs_layout,
             decoder_context_inputs,
-            decoder_context_layout,
+            decoder_context_seq_lens,
+            loss_mask,
         ) = self.concat_inputs(embedded)
 
         # short-circuit when using beamsearch during inference
         if return_decoder_inputs:
-            return decoder_context_inputs, decoder_context_layout
+            return decoder_context_inputs, decoder_context_seq_lens, audio_embeddings
 
         # Run the decoder
         dec_out = self.llama_decoder(decoder_inputs, decoder_inputs_layout)
-        logits = self.final_proj(dec_out)
+        logits_ = self.final_proj(dec_out)
+
+        # BC SDPA workaround
+        logits, loss_mask = Wav2Vec2LlamaModel.crop_to_true_lengths(
+            logits=logits_,
+            loss_mask=loss_mask,
+            true_total_lengths=decoder_inputs_layout.seq_lens,
+        )
 
         targets, targets_layout = batch.as_target_input()
         loss = self.compute_loss(
@@ -196,9 +233,11 @@ class Wav2Vec2LlamaModel(AsrModel):
             logit_layout=decoder_inputs_layout,
             targets=targets,
             target_layout=targets_layout,
-            decoder_context_layout=decoder_context_layout,
+            decoder_context_seq_lens=decoder_context_seq_lens,
+            loss_mask=loss_mask,
             pad_idx=self.target_vocab_info.pad_idx,  # type: ignore
             eos_idx=self.target_vocab_info.eos_idx,  # type: ignore
+            batch=batch,
         )
 
         if return_logits:
@@ -207,7 +246,8 @@ class Wav2Vec2LlamaModel(AsrModel):
                 logits,
                 decoder_inputs_layout,
                 decoder_context_inputs,
-                decoder_context_layout,
+                decoder_context_seq_lens,
+                audio_embeddings,
             )
 
         return loss
@@ -221,6 +261,11 @@ class Wav2Vec2LlamaModel(AsrModel):
         lang_embeddings,
         is_training,
     ):
+        """Validate batch data matches model type requirements.
+
+        LLM_ASR_LID: Requires lang column during training and lang_embeddings.
+        ZERO_SHOT: Requires context_audio and context_text with sufficient examples.
+        """
         if model_type == ModelType.LLM_ASR_LID:
             if is_training:
                 # Force lang id availability during training, optional during inference
@@ -260,36 +305,68 @@ class Wav2Vec2LlamaModel(AsrModel):
         logit_layout: BatchLayout,
         targets: Tensor,
         target_layout: BatchLayout,
-        decoder_context_layout: BatchLayout,
+        decoder_context_seq_lens: List[List[int]],
+        loss_mask: Tensor,
         pad_idx: int,
         eos_idx: int,
+        batch: Seq2SeqBatch,
     ) -> Tensor:
         """Compute cross-entropy loss for speech-to-text generation.
 
         Returns:
             A tensor representing the loss per sample in the batch.
         """
-        # Add EOS to the targets
-        targets, target_layout = Wav2Vec2LlamaModel.add_eos(
-            targets, target_layout, pad_idx, eos_idx
-        )
 
-        # Choose the indices BOS : BOS + max_target_length
-        logits_no_enc = Wav2Vec2LlamaModel.remove_context_logits(
-            logits=logits,
-            logit_layout=logit_layout,
-            targets=targets,
-            target_layout=target_layout,
-            decoder_context_layout=decoder_context_layout,
-        )
+        # Different loss calculation if streaming
+        if self.streaming_config.is_streaming:
+            assert isinstance(batch.example, dict)
+            n_segments = len(batch.example["token_segments"])
 
-        # Run CE loss
-        loss = torch.nn.functional.cross_entropy(
-            input=logits_no_enc.transpose(1, 2),
-            target=targets,
-            ignore_index=pad_idx,
-            reduction="sum",
-        )
+            # Concatenate targets
+            B = logits.size(0)
+            target_tensors = []
+            eos_tensor = torch.tensor([eos_idx], device=logits.device)
+            for b in range(B):
+                for seg_i in range(n_segments):
+                    target_tensors.append(
+                        batch.example["token_segments"][seg_i].seqs[
+                            b,
+                            : batch.example["token_segments"][seg_i].seq_lens[b],
+                        ]
+                    )
+                    target_tensors.append(eos_tensor)
+            targets = torch.cat(target_tensors, dim=0)
+
+            # Mask logits and compute loss
+            relevant_logits = logits[loss_mask]
+            loss = torch.nn.functional.cross_entropy(
+                input=relevant_logits,
+                target=targets,
+                ignore_index=pad_idx,
+                reduction="sum",
+            )
+        else:
+            # Add EOS to the targets
+            targets, target_layout = Wav2Vec2LlamaModel.add_eos(
+                targets, target_layout, pad_idx, eos_idx
+            )
+
+            # Choose the indices BOS : BOS + max_target_length
+            logits_no_enc = Wav2Vec2LlamaModel.remove_context_logits(
+                logits=logits,
+                logit_layout=logit_layout,
+                targets=targets,
+                target_layout=target_layout,
+                decoder_context_seq_lens=decoder_context_seq_lens,
+            )
+
+            # Run CE loss
+            loss = torch.nn.functional.cross_entropy(
+                input=logits_no_enc.transpose(1, 2),
+                target=targets,
+                ignore_index=pad_idx,
+                reduction="sum",
+            )
 
         # Average per token, but multiple by the number of samples in the batch,
         # Resulting in the required summed loss across the batch, but still considering
@@ -326,7 +403,7 @@ class Wav2Vec2LlamaModel(AsrModel):
         logit_layout: BatchLayout,
         targets: Tensor,
         target_layout: BatchLayout,
-        decoder_context_layout: BatchLayout,
+        decoder_context_seq_lens: List[List[int]],
     ) -> Tensor:
         """Extracts target logits by removing context portion from decoder output.
 
@@ -339,7 +416,7 @@ class Wav2Vec2LlamaModel(AsrModel):
         )
         # copy logits[context_start:context_start + target_len] to output
         for i in range(logits.size(0)):
-            context_len_i = decoder_context_layout.seq_lens_pt[i]
+            context_len_i = decoder_context_seq_lens[0][i]
             tgt_len_i = target_layout.seq_lens_pt[i]
             total_len_i = logit_layout.seq_lens_pt[i]
             assert context_len_i + tgt_len_i == total_len_i
@@ -349,10 +426,17 @@ class Wav2Vec2LlamaModel(AsrModel):
         return logits_no_context
 
     def prepare_batch(self, batch: Seq2SeqBatch) -> Seq2SeqBatch:
-        """Transforms context data from batch-of-sequences to sequence-of-batch layout.
+        """Prepare batch for forward pass, transposing context and segmenting for streaming.
 
-        Before: context[batch_id][position]
-        After:  context[position][batch_id]
+        For zero-shot/ICL: Transposes context_audio and context_text from
+        [batch_id][position] to [position][batch_id] layout, enabling iteration
+        through context positions during syntax construction. Pads with zeros
+        for batch elements with fewer context examples.
+
+        For streaming: Segments audio into fixed-duration chunks with aligned text.
+
+        Before: context_audio[batch_id] → all context examples for one batch element
+        After: context_audio[position] → batched data for one context position
         """
 
         example = batch.example if batch.example is not None else {}
@@ -386,12 +470,14 @@ class Wav2Vec2LlamaModel(AsrModel):
                 ]
                 # construct batch from sequences and pad accordingly to the longest seq
                 audio_result.append(
-                    {
-                        "seqs": pad_sequence(
+                    ModalityInput(
+                        modality=Modality.AUDIO,
+                        seqs=pad_sequence(
                             tensor_list, batch_first=True, padding_value=0
                         ),
-                        "seq_lens": lens.tolist(),
-                    }
+                        seq_lens=lens.tolist(),
+                        loss=False,
+                    ),
                 )
 
                 # For text
@@ -411,376 +497,508 @@ class Wav2Vec2LlamaModel(AsrModel):
                 ]
                 # construct batch from sequences and pad accordingly to longest seq
                 text_result.append(
-                    {
-                        "seqs": pad_sequence(
+                    ModalityInput(
+                        modality=Modality.TEXT,
+                        seqs=pad_sequence(
                             tensor_list, batch_first=True, padding_value=0
                         ),
-                        "seq_lens": lens.tolist(),
-                    }
+                        seq_lens=lens.tolist(),
+                        loss=False,
+                    ),
                 )
             assert isinstance(batch.example, dict)
             batch.example["context_audio"] = audio_result
             batch.example["context_text"] = text_result
 
+        if self.streaming_config.is_streaming:
+            batch = self.prepare_streaming_batch(batch)
+
         return batch
 
-    def _lang_id_getter(self, lang: str) -> int:
-        """Get the lang ID for a given language code."""
-        assert self.lang_mapping is not None, "lang_mapping must be set"
-        if lang.lower() in self.lang_mapping:
-            return self.lang_mapping[lang.lower()]
-        if lang in self.lang_mapping:
-            return self.lang_mapping[lang]
+    def prepare_streaming_batch(self, batch: Seq2SeqBatch) -> Seq2SeqBatch:
+        """Segment continuous audio into fixed-size chunks with aligned text.
 
-        log.info(f"lang not in mapping: {lang}")
-        return 0
+        Splits audio into fixed-duration segments, dropping final short segments.
+        Uses word-level alignment to segment reference text matching audio boundaries.
+        Adds audio_segments and token_segments to batch.example for streaming syntax.
+        """
+
+        device = batch.source_seqs.device
+        # Drop last segments if shorter than min_seg_length
+        seg_size = int(
+            self.streaming_config.sample_rate * self.streaming_config.segment_secs
+        )
+        min_seg_length = (
+            self.streaming_config.sample_rate
+            * self.streaming_config.min_audio_ms
+            // 1000
+        )
+        source_seq_lens_pt = torch.tensor(batch.source_seq_lens, device=device)
+        residues = source_seq_lens_pt % seg_size
+        trim_mask = residues <= min_seg_length
+
+        new_lengths = source_seq_lens_pt.clone()
+        new_lengths[trim_mask] = new_lengths[trim_mask] - residues[trim_mask]
+        new_source_seqs = batch.source_seqs[:, : new_lengths.max()]
+        new_source_seq_lens = new_lengths.tolist()
+        # we have to init a new batch because modifying inplace is not allowed
+        batch = Seq2SeqBatch(
+            source_seqs=new_source_seqs,
+            source_seq_lens=new_source_seq_lens,
+            target_seqs=batch.target_seqs,
+            target_seq_lens=list(batch.target_seq_lens),
+            example=batch.example,
+        )
+        # recreate the same source len tensor, dirty but we're looking for functionality for now
+        source_seq_lens_pt = torch.tensor(batch.source_seq_lens, device=device)
+
+        # Get number of segments
+        local_n_segments_all = torch.ceil(source_seq_lens_pt / seg_size).int()
+        local_n_segments = local_n_segments_all.max()
+        n_segments = local_n_segments
+
+        # Split audio to segments. Each example in the batch may have a different number of
+        # segments. In addition, we add some dummy segments to match the nax number of
+        # batches across workers, to avoid fsdp hangs.
+        audio_segments = []
+        zero_lengths = torch.zeros_like(source_seq_lens_pt)
+        for i in range(n_segments):
+            if i < local_n_segments:
+                audio_seg = batch.source_seqs[:, i * seg_size : (i + 1) * seg_size]
+                last_seg = (i + 1) * seg_size > source_seq_lens_pt
+                after_last_seg = (i + 1) * seg_size > source_seq_lens_pt + seg_size
+                seg_lengths = torch.where(
+                    last_seg,
+                    torch.where(
+                        after_last_seg,
+                        zero_lengths,
+                        source_seq_lens_pt - i * seg_size,
+                    ),
+                    seg_size,
+                )
+                assert seg_lengths.min() >= 0
+            else:
+                audio_seg = batch.source_seqs[:, :min_seg_length]  # Dummy
+                seg_lengths = zero_lengths
+            audio_segments.append(
+                ModalityInput(
+                    modality=Modality.AUDIO,
+                    seqs=audio_seg,
+                    seq_lens=seg_lengths.tolist(),
+                    loss=False,
+                ),
+            )
+
+        # Aggregate segment refs
+        segment_refs: List[List[str]] = []
+        B = batch.source_seqs.size(0)
+        sample_lengths = (
+            np.array(batch.source_seq_lens) / self.streaming_config.sample_rate
+        )
+        assert isinstance(batch.example, dict)
+        for b in range(B):
+            durations = batch.example["word_duration"][b]
+            word_ends = durations.cumsum()
+            word_ends[word_ends > sample_lengths[b]] = sample_lengths[
+                b
+            ]  # Trim if over the sample length
+            word_refs = batch.example["text_words_merged"][b]
+            segment_id = (
+                (word_ends - 1e-4) // self.streaming_config.segment_secs
+            ).astype(
+                np.int32
+            )  # -1e-4 to avoid assining to a new segment if word ends on the boundary
+
+            segment_refs.append([])
+            if len(segment_id) > 0:  # Can be 0 if the segment has no text
+                for i in range(segment_id.max() + 1):
+                    seg_ref = "".join(word_refs[segment_id == i])
+                    segment_refs[b].append(seg_ref)
+            assert len(segment_refs[b]) <= local_n_segments, batch
+
+        assert self.text_encoder is not None  # linter
+
+        # Tokenize segment refs and batch again
+        token_segments = []
+        pad_idx = self.target_vocab_info.pad_idx
+        assert pad_idx is not None
+
+        for i in range(n_segments):
+            # Get ref for segment i for all the batch
+            seg_refs = [
+                segment_refs[b][i] if i < len(segment_refs[b]) else "" for b in range(B)
+            ]
+            seg_tokens_: List[Tensor] = [
+                self.text_encoder("=" + seg_ref + "=")[1:-1] for seg_ref in seg_refs
+            ]  # Adding "=" since the tokenizer runs strip()
+            seg_ref_lengths = [x.size(0) for x in seg_tokens_]
+            seg_tokens = pad_sequence(
+                seg_tokens_,
+                batch_first=True,
+                padding_value=pad_idx,
+            ).to(device)
+            token_segments.append(
+                ModalityInput(
+                    modality=Modality.TEXT,
+                    seqs=seg_tokens,
+                    seq_lens=list(seg_ref_lengths),
+                    loss=False,
+                ),
+            )
+
+        # Set segments in the batch
+        assert len(audio_segments) == len(
+            token_segments
+        ), f"{len(audio_segments)=} {len(token_segments)=}"
+        assert len(audio_segments) == n_segments
+        batch.example["audio_segments"] = audio_segments
+        batch.example["token_segments"] = token_segments
+        batch.example["n_segments"] = local_n_segments_all
+
+        return batch
 
     def create_default_syntax(
         self, batch: Seq2SeqBatch, device: Device
-    ) -> List[Dict[str, object]]:
-        # Create a dict of inputs for the base case. Ths syntax is:
-        # target audio <special token> lang <bos> target text <eos>
-        # in case lang code is not in the batch, or not in the mapping, we use ID 0.
-        # in addition, we use ID 0 with prob 1 - self.lang_embeddings_p.
-        # if self.lang_embeddings_p == 0.0, we omit the "<special token> lang" part.
+    ) -> List[ModalityInput]:
+        """Create default decoder input syntax for LLM-ASR with optional language ID.
 
-        # Choose lang IDs
-        example = batch.example or {}
-        assert isinstance(example, dict)
-
-        batch_size = batch.source_seqs.size(0)
-        if self.lang_embeddings_p == 0.0 or self.language_column_name not in example:
-            lang_id_ = [0] * batch_size
-        elif self.lang_embeddings_p > 0.0 and self.language_column_name in example:
-            lang_array = example[self.language_column_name]
-            assert len(lang_array) == batch_size, (
-                f"lang array length {len(lang_array)} != {batch_size} (should be batch size)"
-            )
-            lang_id_ = list(map(self._lang_id_getter, lang_array))
-        else:
-            raise ValueError("lang not in batch, but lang_embeddings_p > 0.0")
-
-        lang_id = torch.tensor(lang_id_, device=device, dtype=torch.int64)
-        lang_seq_lens: List[int] = [1] * batch_size
-
-        # only drop lang id during training
-        if self.training:
-            drop_mask = (
-                torch.rand([batch_size], generator=self.rng)
-                < 1 - self.lang_embeddings_p
-            )
-            lang_id[drop_mask] = 0
-
-        special_token = self.target_vocab_info.size
+        Syntax: target audio [<special token> lang] <bos> target text <eos>
+        Language ID included if lang_embeddings_p > 0, with dropout during training.
+        """
 
         inputs = [
-            {
-                "value": {
-                    "seqs": batch.source_seqs,
-                    "seq_lens": batch.source_seq_lens,
-                },
-                "type": "audio",
-                "loss": False,
-            },
-        ]  # audio
+            ModalityInput(
+                modality=Modality.AUDIO,
+                seqs=batch.source_seqs,
+                seq_lens=list(batch.source_seq_lens),
+                loss=False,
+            )
+        ]
 
         if self.lang_embeddings_p > 0.0:
-            inputs += [
-                {
-                    "value": {
-                        "seqs": self.create_single_char(batch, special_token, device)
-                    },
-                    "type": "text",
-                    "loss": False,
-                },  # special token
-                {
-                    "value": {"seqs": lang_id.unsqueeze(-1), "seq_lens": lang_seq_lens},
-                    "type": "lang",
-                    "loss": False,
-                },  # lang
-            ]
+            assert (
+                self.lang_mapping is not None
+            ), f"{self.lang_embeddings_p=} without lang_mapping"
+
+            # Generate dropout mask during training
+            dropout_mask = None
+            if self.training:
+                batch_size = batch.source_seqs.size(0)
+                dropout_mask = torch.rand(batch_size, device=device) < (
+                    1 - self.lang_embeddings_p
+                )
+
+            lid_marker_input, lang_id_input = create_lang_inputs(
+                batch=batch,
+                lid_marker=self.special_tokens.lid_marker,
+                lang_mapping=self.lang_mapping,
+                lang_column_name=self.language_column_name,
+                dropout_mask=dropout_mask,
+                device=device,
+            )
+            inputs += [lid_marker_input, lang_id_input]
+        bos_idx, eos_idx = self._get_bos_eos()
+        bos_input = create_single_char_input(batch, bos_idx, device=device)
+        eos_input = create_single_char_input(batch, eos_idx, device=device, loss=True)
 
         inputs += [
-            {
-                "value": {
-                    "seqs": self.create_single_char(
-                        batch,
-                        self.target_vocab_info.bos_idx,
-                        device,  # type: ignore
-                    )
-                },
-                "type": "text",
-                "loss": False,
-            },  # bos
-            {
-                "value": {
-                    "seqs": batch.target_seqs,
-                    "seq_lens": batch.target_seq_lens,
-                },
-                "type": "text",
-                "loss": True,
-            },  # target text
-            {
-                "value": {
-                    "seqs": self.create_single_char(
-                        batch,
-                        self.target_vocab_info.eos_idx,
-                        device,  # type: ignore
-                    )
-                },
-                "type": "text",
-                "loss": True,
-            },  # eos
+            bos_input,
+            ModalityInput(
+                modality=Modality.TEXT,
+                seqs=batch.target_seqs,
+                seq_lens=list(batch.target_seq_lens),
+                loss=True,
+            ),
+            eos_input,
         ]
+
         return inputs
+
+    def _get_bos_eos(self) -> Tuple[int, int]:
+        bos_idx = self.target_vocab_info.bos_idx
+        eos_idx = self.target_vocab_info.eos_idx
+        assert bos_idx is not None
+        assert eos_idx is not None
+        return bos_idx, eos_idx
 
     def create_text_context_syntax(
         self, batch: Seq2SeqBatch, device: Device
-    ) -> List[Dict[str, object]]:
-        # Create a dict of inputs. The syntax is:
-        # <context> (<context example> context text </context example>) X N </context> target audio <bos> target text <eos>
-        assert self.target_vocab_info.bos_idx is not None  # Silence linter
+    ) -> List[ModalityInput]:
+        """Create decoder input syntax with text-only context examples.
+
+        Syntax: <context> (<context example> context text </context example>) x N </context> target audio <bos> target text <eos>
+        Uses n_context_examples text demonstrations before main input.
+        """
+        bos_idx, eos_idx = self._get_bos_eos()
+
         n_context = len(batch.example["context_audio"])  # type: ignore
-        if n_context == 0:
-            raise ValueError("No context examples found")
+        assert n_context != 0, "No context examples found."
 
-        inputs = []
+        context_start_input = create_single_char_input(
+            batch, self.special_tokens.context_start, device=device
+        )
 
-        # Set indices for special tokens in the syntax
-        context_start = self.target_vocab_info.size
-        context_end = self.target_vocab_info.size + 1
-        context_example_start = self.target_vocab_info.size + 2
-        context_example_end = self.target_vocab_info.size + 3
-
-        # Build syntax
-        inputs += [
-            {
-                "value": {
-                    "seqs": self.create_single_char(batch, context_start, device)
-                },
-                "type": "text",
-                "loss": False,
-            },
-        ]
+        inputs = [context_start_input]
 
         for i in range(n_context):
+
+            context_example_start_input = create_single_char_input(
+                batch, self.special_tokens.context_example_start, device=device
+            )
+            context_example_end_input = create_single_char_input(
+                batch, self.special_tokens.context_example_end, device=device
+            )
+
             inputs += [
-                {
-                    "value": {
-                        "seqs": self.create_single_char(
-                            batch, context_example_start, device
-                        )
-                    },
-                    "type": "text",
-                    "loss": False,
-                },
-                {
-                    "value": batch.example["context_text"][i],  # type: ignore
-                    "type": "text",
-                    "loss": False,
-                },
-                {
-                    "value": {
-                        "seqs": self.create_single_char(
-                            batch, context_example_end, device
-                        )
-                    },
-                    "type": "text",
-                    "loss": False,
-                },
+                context_example_start_input,
+                ModalityInput(
+                    modality=Modality.TEXT,
+                    seqs=batch.example["context_text"][i]["seqs"],  # type: ignore
+                    seq_lens=batch.example["context_text"][i]["seq_lens"],  # type: ignore
+                    loss=False,
+                ),
+                context_example_end_input,
             ]
+
+        context_end_input = create_single_char_input(
+            batch, self.special_tokens.context_end, device=device
+        )
+        bos_input = create_single_char_input(batch, bos_idx, device=device)
+        eos_input = create_single_char_input(batch, eos_idx, device=device, loss=True)
+
         inputs += [
-            {
-                "value": {"seqs": self.create_single_char(batch, context_end, device)},
-                "type": "text",
-                "loss": False,
-            },
-            {
-                "value": {
-                    "seqs": batch.source_seqs,
-                    "seq_lens": batch.source_seq_lens,
-                },
-                "type": "audio",
-                "loss": False,
-            },
-            {
-                "value": {
-                    "seqs": self.create_single_char(
-                        batch, self.target_vocab_info.bos_idx, device
-                    )
-                },
-                "type": "text",
-                "loss": False,
-            },
-            {
-                "value": {
-                    "seqs": batch.target_seqs,
-                    "seq_lens": batch.target_seq_lens,
-                },
-                "type": "text",
-                "loss": True,
-            },
-            {
-                "value": {
-                    "seqs": self.create_single_char(
-                        batch,
-                        self.target_vocab_info.eos_idx,
-                        device,  # type: ignore
-                    )
-                },
-                "type": "text",
-                "loss": True,
-            },
+            context_end_input,
+            ModalityInput(
+                modality=Modality.AUDIO,
+                seqs=batch.source_seqs,
+                seq_lens=list(batch.source_seq_lens),
+                loss=False,
+            ),
+            bos_input,
+            ModalityInput(
+                modality=Modality.TEXT,
+                seqs=batch.target_seqs,
+                seq_lens=list(batch.target_seq_lens),
+                loss=True,
+            ),
+            eos_input,
         ]
         return inputs
 
     def create_zero_shot_syntax(
         self, batch: Seq2SeqBatch, device: Device
-    ) -> List[Dict[str, object]]:
-        # Create a dict of inputs. Ths syntax is:
-        # <context> (<context example> context audio <context_bos> context text <context_eos> </context example>) X N </context> target audio <bos> target text <eos>
+    ) -> List[ModalityInput]:
+        """Create decoder input syntax for zero-shot learning with audio+text context.
+
+        Syntax: <context> (<context example> audio <bos> text <eos> </context example>) x N </context> target audio <bos> target text <eos>
+        Demonstrates audio-to-text mapping with n_context_examples before main task.
+        """
+        assert isinstance(batch.example, dict)
         n_context = len(batch.example["context_audio"])  # type: ignore
-        inputs = []
 
-        # Set indices for special tokens in the syntax
-        context_start = self.target_vocab_info.size
-        context_end = self.target_vocab_info.size + 1
-        context_example_start = self.target_vocab_info.size + 2
-        context_example_end = self.target_vocab_info.size + 3
-        context_bos = self.target_vocab_info.size + 4
-        context_eos = self.target_vocab_info.size + 5
-
-        # Build syntax
-        inputs += [
-            {
-                "value": {
-                    "seqs": self.create_single_char(batch, context_start, device)
-                },
-                "type": "text",
-                "loss": False,
-            },
-        ]
-
-        for i in range(n_context):
-            inputs += [
-                {
-                    "value": {
-                        "seqs": self.create_single_char(
-                            batch, context_example_start, device
-                        )
-                    },
-                    "type": "text",
-                    "loss": False,
-                },
-                {
-                    "value": batch.example["context_audio"][i],  # type: ignore
-                    "type": "audio",
-                    "loss": False,
-                },
-                {
-                    "value": {
-                        "seqs": self.create_single_char(batch, context_bos, device)
-                    },
-                    "type": "text",
-                    "loss": False,
-                },
-                {
-                    "value": batch.example["context_text"][i],  # type: ignore
-                    "type": "text",
-                    "loss": False,
-                },
-                {
-                    "value": {
-                        "seqs": self.create_single_char(batch, context_eos, device)
-                    },
-                    "type": "text",
-                    "loss": False,
-                },
-                {
-                    "value": {
-                        "seqs": self.create_single_char(
-                            batch, context_example_end, device
-                        )
-                    },
-                    "type": "text",
-                    "loss": False,
-                },
-            ]
-        inputs += [
-            {
-                "value": {"seqs": self.create_single_char(batch, context_end, device)},
-                "type": "text",
-                "loss": False,
-            },
-            {
-                "value": {
-                    "seqs": batch.source_seqs,
-                    "seq_lens": batch.source_seq_lens,
-                },
-                "type": "audio",
-                "loss": False,
-            },
-            {
-                "value": {
-                    "seqs": self.create_single_char(
-                        batch,
-                        self.target_vocab_info.bos_idx,
-                        device,  # type: ignore
-                    )
-                },
-                "type": "text",
-                "loss": False,
-            },
-            {
-                "value": {
-                    "seqs": batch.target_seqs,
-                    "seq_lens": batch.target_seq_lens,
-                },
-                "type": "text",
-                "loss": True,
-            },
-            {
-                "value": {
-                    "seqs": self.create_single_char(
-                        batch,
-                        self.target_vocab_info.eos_idx,
-                        device,  # type: ignore
-                    )
-                },
-                "type": "text",
-                "loss": True,
-            },
-        ]
-        return inputs  # type: ignore[return-value]
-
-    @staticmethod
-    def create_single_char(batch: Seq2SeqBatch, char: int, device: Device) -> Tensor:
-        return torch.full_like(
-            batch.target_seqs[:, :1],
-            fill_value=char,
-            device=device,  # type: ignore
+        context_start_input = create_single_char_input(
+            batch, self.special_tokens.context_start, device=device
+        )
+        context_example_start_input = create_single_char_input(
+            batch, self.special_tokens.context_example_start, device=device
+        )
+        context_example_end_input = create_single_char_input(
+            batch, self.special_tokens.context_example_end, device=device
+        )
+        context_bos_input = create_single_char_input(
+            batch, self.special_tokens.context_bos, device=device
+        )
+        context_eos_input = create_single_char_input(
+            batch, self.special_tokens.context_eos, device=device
         )
 
-    def embed_inputs(
-        self, inputs: List[Dict[str, object]], dtype: torch.dtype
-    ) -> List[Dict[str, object]]:
-        # Embed the different modalities
-        for inp in inputs:
-            # Embed the modality
-            if inp["type"] == "audio":
-                inp["value"]["seqs"], inp["value"]["seq_lens"] = self.embed_audio(  # type: ignore
-                    seqs=inp["value"]["seqs"],
-                    seq_lens=inp["value"]["seq_lens"],  # type: ignore
-                )
-            elif inp["type"] == "text":
-                inp["value"]["seqs"] = self.embed_text(inp["value"]["seqs"], dtype)  # type: ignore
-            elif inp["type"] == "lang":
-                inp["value"]["seqs"] = self.lang_embeddings(inp["value"]["seqs"]).to(  # type: ignore
-                    dtype
-                )
-            else:
-                raise ValueError(f"Unknown input type: {inp['type']}")
+        inputs = []
+        inputs += [context_start_input]
+
+        for i in range(n_context):
+
+            inputs += [
+                context_example_start_input,
+                ModalityInput(
+                    modality=Modality.AUDIO,
+                    seqs=batch.example["context_audio"][i].seqs,
+                    seq_lens=batch.example["context_audio"][i].seq_lens,
+                    loss=False,
+                ),
+                context_bos_input,
+                ModalityInput(
+                    modality=Modality.TEXT,
+                    seqs=batch.example["context_text"][i].seqs,
+                    seq_lens=batch.example["context_text"][i].seq_lens,
+                    loss=False,
+                ),
+                context_eos_input,
+                context_example_end_input,
+            ]
+
+        context_end_input = create_single_char_input(
+            batch, self.special_tokens.context_end, device=device
+        )
+        eos_idx, bos_idx = self._get_bos_eos()
+        bos_input = create_single_char_input(batch, bos_idx, device=device)
+        eos_input = create_single_char_input(batch, eos_idx, device=device)
+
+        inputs += [
+            context_end_input,
+            ModalityInput(
+                modality=Modality.AUDIO,
+                seqs=batch.source_seqs,
+                seq_lens=list(batch.source_seq_lens),
+                loss=False,
+            ),
+            bos_input,
+            ModalityInput(
+                modality=Modality.TEXT,
+                seqs=batch.target_seqs,
+                seq_lens=list(batch.target_seq_lens),
+                loss=True,
+            ),
+            eos_input,
+        ]
         return inputs  # type: ignore[return-value]
+
+    def create_streaming_syntax(
+        self,
+        batch: Seq2SeqBatch,
+        device: Device,
+        inference: bool = False,
+    ) -> List[ModalityInput]:
+        """Create decoder input syntax for streaming ASR with segmented audio.
+
+        Syntax: [lang <lang>] (audio_i <segment marker> <bos> text_i <eos>) x N
+        Processes audio in segments, marking last segment differently for proper termination.
+        During inference, reuses cached embeddings from previous segments.
+        """
+        assert isinstance(batch.example, dict)
+        inputs = []
+        if self.lang_embeddings_p > 0.0:
+            assert (
+                self.lang_mapping is not None
+            ), f"{self.lang_embeddings_p=} without lang_mapping"
+
+            # Generate dropout mask during training
+            dropout_mask = None
+            if self.training:
+                batch_size = batch.source_seqs.size(0)
+                dropout_mask = torch.rand(batch_size, device=device) < (
+                    1 - self.lang_embeddings_p
+                )
+
+            lid_marker_input, lang_id_input = create_lang_inputs(
+                batch=batch,
+                lid_marker=self.special_tokens.lid_marker,
+                lang_mapping=self.lang_mapping,
+                lang_column_name=self.language_column_name,
+                dropout_mask=dropout_mask,
+                device=device,
+            )
+
+            inputs += [lang_id_input, lid_marker_input]
+
+        # Add segments
+        n_segments = len(batch.example["audio_segments"])
+        for seg_i in range(n_segments):
+            inputs += [
+                ModalityInput(
+                    modality=Modality.AUDIO,
+                    seqs=batch.example["audio_segments"][seg_i].seqs,
+                    seq_lens=batch.example["audio_segments"][seg_i].seq_lens,
+                    loss=False,
+                ),
+            ]
+
+            # Compute token type (last/regular) for each batch element
+            is_last = seg_i == batch.example["n_segments"] - 1  # [B] bool
+            segment_tokens = torch.where(
+                is_last,
+                self.special_tokens.last_segment,
+                self.special_tokens.regular_segment,
+            )  # [B] int tensor
+
+            segment_marker_input = ModalityInput(
+                modality=Modality.TEXT,
+                seqs=segment_tokens.unsqueeze(-1),  # [B] -> [B, 1]
+                seq_lens=[1] * batch.source_seqs.size(0),
+                loss=False,
+            )
+            bos_idx, eos_idx = self._get_bos_eos()
+            bos_input = create_single_char_input(batch, bos_idx, device=device)
+            eos_input = create_single_char_input(
+                batch, eos_idx, device=device, loss=True
+            )
+
+            inputs += [
+                segment_marker_input,
+                bos_input,
+                ModalityInput(
+                    modality=Modality.TEXT,
+                    seqs=batch.example["token_segments"][seg_i].seqs,
+                    seq_lens=batch.example["token_segments"][seg_i].seq_lens,
+                    loss=True,
+                ),
+                eos_input,
+            ]
+
+        # Adaptations for inference
+        if inference:
+            for inp in inputs:
+                inp.loss = False
+            inputs = inputs[:-2]  # Remove segment text and EOS
+
+        return inputs
+
+    def embed_inputs(
+        self, inputs: List[ModalityInput], dtype: torch.dtype
+    ) -> List[ModalityInput]:
+        """Embed all modalities, mutating inputs in-place.
+
+        Audio -> encoder frontend + encoder + projection
+        Text -> text embedding
+        Lang -> lang embedding
+
+        Zero-length sequences temporarily padded to avoid encoder crashes.
+        """
+
+        for inp in inputs:
+            # Skip if marked as embedded already (used for streaming inference)
+            if inp.embedded:
+                continue
+
+            # Pretend zero lengths are longer, to not get an exception. Set back at the end
+            zero_indices = [i for i, length in enumerate(inp.seq_lens) if length == 0]
+
+            # Temporarily set zero lengths to max to avoid encoder crashes
+            if zero_indices:
+                max_len = inp.seqs.size(-1)  # Last dimension (sequence length)
+                for i in zero_indices:
+                    inp.seq_lens[i] = max_len
+
+            # Embed the modality
+            if inp.modality == Modality.AUDIO:
+                inp.seqs, inp.seq_lens = self.embed_audio(inp.seqs, inp.seq_lens)
+            elif inp.modality == Modality.TEXT:
+                inp.seqs = self.embed_text(inp.seqs, dtype)
+            elif inp.modality == Modality.LANG:
+                inp.seqs = self.lang_embeddings(inp.seqs).to(dtype)  # type: ignore
+            else:
+                raise ValueError(f"Unknown input modality: {inp.modality}")
+            inp.embedded = True
+
+            assert not torch.any(
+                inp.seqs.isnan()
+            ), f"Found NaNs after embedding in {inp}"
+
+            # Set back the length to zero where needed
+            if zero_indices:
+                for i in zero_indices:
+                    inp.seq_lens[i] = 0
+
+        return inputs
 
     def embed_audio(
         self, seqs: Tensor, seq_lens: List[int]
@@ -833,27 +1051,31 @@ class Wav2Vec2LlamaModel(AsrModel):
         return self.text_frontend(seqs).to(dtype)
 
     def concat_inputs(
-        self, inputs: List[Dict[str, object]]
-    ) -> Tuple[Tensor, BatchLayout, Tensor, BatchLayout]:
-        # Get input information
-        t = inputs[0]["value"]["seqs"]  # type: ignore
+        self, inputs: List[ModalityInput]
+    ) -> Tuple[Tensor, BatchLayout, List[Tensor], List[List[int]], Tensor]:
+        """Concatenate multi-modal inputs into single decoder sequence.
 
+        Flattens all modality segments (audio, text, lang) into a single
+        contiguous sequence per batch element, computing per-modality lengths
+        and loss masks for training.
+        """
+        # Get input information
+        t = inputs[0].seqs
         device = t.device
         dtype = t.dtype
         batch_size = t.size(0)
         input_dim = t.size(2)
-        ones_list = [1] * batch_size
 
         # Compute total lengths
-        lengths: List[List[int]] = [
-            inp["value"]["seq_lens"] if "seq_lens" in inp["value"] else ones_list  # type: ignore
-            for inp in inputs
-        ]
+        lengths: List[List[int]] = [inp.seq_lens for inp in inputs]
+
         # Sum the lengths per batch element
         total_lengths: List[int] = [
             sum(length[b] for length in lengths) for b in range(batch_size)
         ]
-        max_total_length = max(total_lengths)
+        max_total_length = (
+            max(total_lengths) + 1
+        )  # Added padding to force the correct SDPA backend for BC parity
 
         # Init the matrix with zeros
         decoder_inputs = torch.zeros(
@@ -864,36 +1086,145 @@ class Wav2Vec2LlamaModel(AsrModel):
         lengths_tensor = [torch.tensor(length, device=device) for length in lengths]
         for b in range(batch_size):
             b_inputs_ = [
-                inp["value"]["seqs"][b : b + 1, : length[b]]  # type: ignore
+                inp.seqs[b : b + 1, : length[b]]  # type: ignore
                 for (inp, length) in zip(inputs, lengths_tensor)
             ]
             b_inputs = torch.cat(b_inputs_, dim=1)
             del b_inputs_
-            assert b_inputs.size(1) == total_lengths[b]
             decoder_inputs[b, : b_inputs.size(1)] = b_inputs
 
-        # Compute total context length (everything that we don't train the loss for)
-        context_lengths: List[List[int]] = [
-            inp["value"]["seq_lens"] if "seq_lens" in inp["value"] else ones_list  # type: ignore
-            for inp in inputs
-            if inp["loss"] is False
-        ]
-        total_context_lengths: List[int] = [
-            sum(length[b] for length in context_lengths) for b in range(batch_size)
-        ]
-        max_context_length = max(total_context_lengths)
-        decoder_context_inputs = decoder_inputs[:, :max_context_length]
+        # Get the context tensor before each ref text.
+        # For example if the syntax is:
+        # lang <lang> audio_1 <regular segment> <BOS> text 1 <EOS> audio_2 <last segment> <BOS> text 2 <EOS>
+        # then we return:
+        # [concat([lang, <lang>, audio_1, <regular segment> <BOS>]),
+        #  concat([<EOS>, audio_2, <last segment>, <BOS>])]
+        inputs_to_group = []
+        decoder_context_inputs = []
+        decoder_context_seq_lens = []
+        for i, inp in enumerate(inputs):
+            if inp.loss is False:
+                inputs_to_group.append(inp)
+
+                # If context for segment is done, group it
+                if i == len(inputs) - 1 or inputs[i + 1].loss is True:
+                    # Get lengths
+                    context_lengths = [inp.seq_lens for inp in inputs_to_group]
+                    context_lengths_sum: List[int] = [
+                        sum(length[b] for length in context_lengths)
+                        for b in range(batch_size)
+                    ]
+
+                    # Group inputs
+                    context_inputs = torch.zeros(
+                        [batch_size, int(max(context_lengths_sum)), input_dim],
+                        device=device,
+                        dtype=dtype,
+                    )
+                    for b in range(batch_size):
+                        b_context_inputs_ = [
+                            inp.seqs[b : b + 1, : length[b]]
+                            for inp, length in zip(inputs_to_group, context_lengths)
+                        ]
+                        b_context_inputs = torch.cat(b_context_inputs_, dim=1)
+                        context_inputs[b, : b_context_inputs.size(1)] = b_context_inputs
+
+                    # Next
+                    inputs_to_group = []
+                    decoder_context_inputs.append(context_inputs)
+                    decoder_context_seq_lens.append(context_lengths_sum)
+
+        # Prepare loss mask. A boolean mask indicating which output we train for.
+        loss_mask = torch.zeros_like(decoder_inputs[:, :, 0], dtype=torch.bool)
+        for b in range(batch_size):
+            loc = 0
+            for inp in inputs:
+                inp_b_len = inp.seq_lens[b]
+                if inp.loss:
+                    loss_mask[b, loc - 1 : loc - 1 + inp_b_len] = True
+                loc += inp_b_len
 
         decoder_input_layout = BatchLayout.of(
             batch=decoder_inputs, seq_lens=total_lengths
-        )
-        decoder_context_layout = BatchLayout.of(
-            batch=decoder_context_inputs, seq_lens=total_context_lengths
         )
 
         return (
             decoder_inputs,
             decoder_input_layout,
             decoder_context_inputs,
-            decoder_context_layout,
+            decoder_context_seq_lens,
+            loss_mask,
         )
+
+    def embed_inputs_training(
+        self, inputs: List[ModalityInput], dtype: torch.dtype
+    ) -> List[ModalityInput]:
+        """Embed all modalities with batched audio encoding for training efficiency.
+
+        Batches audio encoder calls across all segments to reduce overhead,
+        particularly beneficial for streaming with small segment sizes.
+        Text and lang embeddings processed normally.
+        """
+
+        # Concate all audio inputs
+        audio_inputs = [inp for inp in inputs if inp.modality == Modality.AUDIO]
+        sum_b = sum([inp.seqs.size(0) for inp in audio_inputs])
+        max_audio_len = max([inp.seqs.size(1) for inp in audio_inputs])
+        all_audio_seqs = torch.zeros(
+            [sum_b, max_audio_len],
+            device=audio_inputs[0].seqs.device,
+            dtype=audio_inputs[0].seqs.dtype,
+        )
+        loc = 0
+        for audio_inp in audio_inputs:
+            b = audio_inp.seqs.size(0)
+            all_audio_seqs[loc : loc + b, : audio_inp.seqs.size(1)] = audio_inp.seqs
+            loc += b
+        all_audio_seq_lens = [item for inp in audio_inputs for item in inp.seq_lens]
+
+        # Call regular embed_inputs
+        audio_inputs = [
+            ModalityInput(
+                modality=Modality.AUDIO,
+                seqs=all_audio_seqs,
+                seq_lens=all_audio_seq_lens,
+                loss=False,
+            ),
+        ]
+        audio_inputs = self.embed_inputs(audio_inputs, dtype)
+        all_audio_seqs = audio_inputs[0].seqs
+        all_audio_seq_lens = audio_inputs[0].seq_lens
+
+        # Spread result back to the audio inputs and mark them as already embedded
+        audio_loc = 0
+        for inp in inputs:
+            if inp.modality == Modality.AUDIO:
+                b = inp.seqs.size(0)
+                lengths = all_audio_seq_lens[audio_loc : audio_loc + b]
+                max_len = max(lengths)
+                inp.seq_lens = lengths
+                inp.seqs = all_audio_seqs[audio_loc : audio_loc + b, :max_len]
+                audio_loc += b
+                inp.embedded = True
+
+        # Embed the rest of the inputs and return
+        inputs = self.embed_inputs(inputs, dtype)
+        return inputs
+
+    @staticmethod
+    def crop_to_true_lengths(
+        logits: Tensor,
+        loss_mask: Tensor,
+        true_total_lengths: Sequence[int],
+    ) -> tuple[Tensor, Tensor]:
+        """Crop logits to true sequence lengths, removing SDPA workaround padding.
+
+        Args:
+            logits: Logit tensor [B, S+1, V] with workaround padding
+            true_total_lengths: Original sequence lengths without padding
+
+        Returns:
+            Cropped logits [B, S, V]
+        """
+        max_true_length = max(true_total_lengths)
+        return logits[:, :max_true_length, :], loss_mask[:, :max_true_length]

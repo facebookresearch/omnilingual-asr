@@ -41,11 +41,15 @@ from omnilingual_asr.models.inference.align import (
 from omnilingual_asr.models.wav2vec2_llama.beamsearch import (
     Wav2Vec2LlamaBeamSearchSeq2SeqGenerator,
 )
-from omnilingual_asr.models.wav2vec2_llama.config import ModelType
+from omnilingual_asr.models.wav2vec2_llama.config import (
+    ModelType,
+    Wav2Vec2LlamaStreamingConfig,
+)
 from omnilingual_asr.models.wav2vec2_llama.model import (
     Wav2Vec2LlamaBeamSearchConfig,
     Wav2Vec2LlamaModel,
 )
+from omnilingual_asr.models.wav2vec2_llama.syntax import Modality, ModalityInput
 
 log = get_log_writer(__name__)
 
@@ -229,10 +233,21 @@ class ASRInferencePipeline:
         else:
             assert isinstance(beam_search_config, Wav2Vec2LlamaBeamSearchConfig)
 
+        # cursed logic
+        self.streaming_config: Wav2Vec2LlamaStreamingConfig = (
+            Wav2Vec2LlamaStreamingConfig()
+        )
+        if isinstance(self.model, Wav2Vec2LlamaModel) and hasattr(
+            self.model, "streaming_config"
+        ):
+            self.streaming_config = self.model.streaming_config
+
         self.beam_search_generator = None
         if isinstance(self.model, Wav2Vec2LlamaModel):
             self.beam_search_generator = Wav2Vec2LlamaBeamSearchSeq2SeqGenerator(
-                model=self.model, config=beam_search_config
+                model=self.model,
+                config=beam_search_config,
+                streaming_config=self.streaming_config,
             )
 
         # Set up tokenizer decoder
@@ -323,21 +338,67 @@ class ASRInferencePipeline:
         return transcriptions
 
     def _apply_model_wav2vec2llama(self, batch: Seq2SeqBatch) -> List[str]:
-        context_logits, context_layout = self.model(batch, return_decoder_inputs=True)
-
-        # Generate hypotheses using beam search
         assert self.beam_search_generator is not None
-        hypothesis_tokens, hypothesis_layout = (
-            self.beam_search_generator.generate_hypotheses(
-                decoder_context_inputs=context_logits,
-                decoder_context_input_layout=context_layout,
+        assert isinstance(self.model, Wav2Vec2LlamaModel)
+
+        if self.streaming_config is not None and self.streaming_config.is_streaming:
+            segment_samples = int(
+                self.streaming_config.segment_secs * self.streaming_config.sample_rate
             )
-        )
+            source_seq_lens = torch.tensor(batch.source_seq_lens, device=self.device)
+            n_segments = torch.ceil(source_seq_lens / segment_samples).int()
+
+            assert isinstance(batch.example, dict)
+            batch.example["n_segments"] = n_segments
+
+            audio_segments = torch.split(batch.source_seqs, segment_samples, 1)
+            audio_embeddings: List[ModalityInput] = []
+            for i, segment in enumerate(audio_segments):
+                seg_lengths = torch.clamp(
+                    source_seq_lens - i * segment_samples,
+                    min=0,
+                    max=segment_samples,
+                )
+                modality_input = ModalityInput(
+                    modality=Modality.AUDIO,
+                    seqs=segment.to(self.device),
+                    seq_lens=seg_lengths.tolist(),
+                    loss=False,
+                    embedded=False,
+                )
+                embedded = self.model.embed_inputs(
+                    [modality_input], dtype=segment.dtype
+                )[0]
+                audio_embeddings.append(embedded)
+
+            # Generate hypotheses using beam search
+            hypothesis_tokens, hypothesis_lens = (
+                self.beam_search_generator.generate_hypotheses(
+                    decoder_context_inputs=None,
+                    decoder_context_seq_lens=None,
+                    audio_embeddings=audio_embeddings,
+                    batch=batch,
+                )
+            )
+        else:
+            (decoder_context, decoder_context_seq_lens, audio_embeddings) = self.model(  # type: ignore
+                batch, return_decoder_inputs=True
+            )
+
+            # Generate hypotheses using beam search
+            hypothesis_tokens, hypothesis_lens = (
+                self.beam_search_generator.generate_hypotheses(
+                    decoder_context_inputs=decoder_context,
+                    decoder_context_seq_lens=decoder_context_seq_lens,
+                    audio_embeddings=None,
+                    batch=None,
+                )
+            )
 
         # Decode tokens to text
         transcriptions = []
         for i in range(hypothesis_tokens.shape[0]):
-            seq_len = hypothesis_layout.seq_lens[i]
+            seq_len = hypothesis_lens[i] if hypothesis_lens is not None else 0
             tokens = hypothesis_tokens[i, :seq_len]
             text = self.token_decoder(tokens)
             transcriptions.append(text)
@@ -394,13 +455,13 @@ class ASRInferencePipeline:
 
         if need_to_decode:
             builder = builder.map(self.audio_decoder, selector="data")
-            # Add resampling to 16kHz after audio decoding
 
         # Resample
         builder = builder.map(resample_to_16khz, selector="data")
 
-        # Check max allowed length
-        if check_max_length:
+        # Check max allowed length if non-streaming
+        non_streaming = not self.streaming_config.is_streaming
+        if non_streaming:
             builder = builder.map(assert_max_length, selector="data")
 
         # Add waveform processing
@@ -551,7 +612,8 @@ class ASRInferencePipeline:
         if is_llm_model and not lang:
             log.info("Using an LLM model without a `lang` code can lead to degraded trascription quality.")
         if is_llm_zs_model:
-            raise NotImplementedError("omniASR_LLM_7B_ZS do not support inference without context conditioning. Please use `.transcribe_with_context()` instead of `.transcribe()`.")
+            raise NotImplementedError("Model does not support inference without context conditioning."
+                                      "Please use `.transcribe_with_context()` instead of `.transcribe()`.")
 
         # invariant: lang must be the same length as the input
         if not lang:

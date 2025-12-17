@@ -27,7 +27,7 @@ dataset:
      example_shuffle_window: 0 # full-batch shuffling by default
 
 tokenizer:
-  name: "omniASR_tokenizer"
+  name: "omniASR_tokenizer_v1"
 
 optimizer:
   config:

@@ -6,7 +6,7 @@
 
 from pathlib import Path
 
-from fairseq2.data.tokenizers import VocabularyInfo
+from fairseq2.data.tokenizers import TokenEncoder, VocabularyInfo, load_tokenizer
 from fairseq2.logging import get_log_writer
 from fairseq2.models.llama import LLaMAConfig, LLaMAFactory
 from fairseq2.models.llama.factory import _init_truncated_normal
@@ -250,6 +250,12 @@ class Wav2Vec2LlamaFactory:
         else:
             lang_embeddings = None
 
+        text_encoder: TokenEncoder | None = None
+        if self._config.streaming_config.is_streaming:
+            text_encoder = load_tokenizer(
+                self._config.streaming_config.text_tokenizer
+            ).create_encoder()
+
         # constructing target vocabulary info with wav2vec2 size
         target_vocab_info = VocabularyInfo(
             size=self._config.wav2vec2_asr_config.target_vocab_size,
@@ -280,4 +286,6 @@ class Wav2Vec2LlamaFactory:
             lang_mapping=lang_mapping,
             context_text_only=self._config.context_text_only,
             n_context_examples=self._config.n_context_examples,
+            streaming_config=self._config.streaming_config,
+            text_encoder=text_encoder,
         )

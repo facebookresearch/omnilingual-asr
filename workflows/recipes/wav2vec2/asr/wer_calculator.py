@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping
-from typing import TextIO, cast, final
+from typing import List, TextIO, cast, final
 
 from fairseq2.data.tokenizers import TokenDecoder, Tokenizer
 from fairseq2.datasets import Seq2SeqBatch
@@ -24,6 +24,7 @@ from torch import Tensor
 from omnilingual_asr.models.wav2vec2_llama.beamsearch import (
     Wav2Vec2LlamaBeamSearchSeq2SeqGenerator,
 )
+from omnilingual_asr.models.wav2vec2_llama.syntax import ModalityInput
 
 log = get_log_writer(__name__)
 
@@ -115,7 +116,8 @@ class WerCalculator:
         logits: Tensor,
         logit_layout: BatchLayout,
         context_logits: Tensor | None,
-        context_logit_layout: BatchLayout | None,
+        context_logit_layout: List[int] | None,
+        audio_embeddings: List[ModalityInput],
         metric_bag: MetricBag,
         llama_beam_search: Wav2Vec2LlamaBeamSearchSeq2SeqGenerator | None,
     ) -> None:
@@ -133,10 +135,13 @@ class WerCalculator:
         # Only LLM-based model uses beamsearch during eval
         if llama_beam_search is not None:
             # (N, S)
-            hyp_seqs, hyp_seqs_layout = llama_beam_search.generate_hypotheses(
+            hyp_seqs, hyp_seqs_lens = llama_beam_search.generate_hypotheses(
                 decoder_context_inputs=context_logits,  # type: ignore
-                decoder_context_input_layout=context_logit_layout,  # type: ignore
+                decoder_context_seq_lens=context_logit_layout,  # type: ignore
+                audio_embeddings=audio_embeddings,
+                batch=batch,
             )
+            hyp_seqs_layout = BatchLayout(shape=hyp_seqs.shape, seq_lens=hyp_seqs_lens)
         else:
             # greedy sampling
             # (N, S)

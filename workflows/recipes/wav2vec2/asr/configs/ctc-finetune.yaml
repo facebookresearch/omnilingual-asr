@@ -28,7 +28,7 @@ dataset:
      example_shuffle_window: 1
 
 tokenizer:
-  name: "omniASR_tokenizer"
+  name: "omniASR_tokenizer_v1"
 
 optimizer:
   config:

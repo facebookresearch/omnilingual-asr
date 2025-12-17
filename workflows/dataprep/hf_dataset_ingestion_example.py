@@ -4,7 +4,9 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 from functools import partial
+from math import floor
 from pathlib import Path
 
 import datasets
@@ -191,12 +193,13 @@ class DataPrepCLI:
                 ray_ds_stream_ = ray.data.from_huggingface(mls_hf)
 
                 # Use batch-level text processing
+                num_cpus = max(floor((os.cpu_count() or 1) / 4), 1)
                 ray_ds_stream_ = ray_ds_stream_.map_batches(
                     MLSTextProcessor,
                     fn_constructor_kwargs={"lang": lang},
                     batch_size=100,
                     batch_format="pyarrow",
-                    concurrency=10,
+                    concurrency=num_cpus,
                 )
 
                 # Audio processing
@@ -208,7 +211,7 @@ class DataPrepCLI:
                     },
                     batch_size=100,
                     batch_format="pyarrow",
-                    concurrency=10,
+                    concurrency=num_cpus,
                 )
                 ray_ds_stream_ = ray_ds_stream_.map_batches(
                     partial(map_to_target_schema, split=split, corpus="mls"),
@@ -249,12 +252,13 @@ class DataPrepCLI:
                 ray_ds_stream_ = ray.data.from_huggingface(fleurs_hf)
 
                 # Use batch-level text processing
+                num_cpus = max(floor((os.cpu_count() or 1) / 4), 1)
                 ray_ds_stream_ = ray_ds_stream_.map_batches(
                     FleursTextProcessor,
                     fn_constructor_kwargs={"lang": lang},
                     batch_size=1000,
                     batch_format="pyarrow",
-                    concurrency=10,
+                    concurrency=num_cpus,
                 )
 
                 # Audio processing
@@ -266,7 +270,7 @@ class DataPrepCLI:
                     },
                     batch_size=100,
                     batch_format="pyarrow",
-                    concurrency=10,
+                    concurrency=num_cpus,
                 )
                 ray_ds_stream_ = ray_ds_stream_.map_batches(
                     partial(

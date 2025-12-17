@@ -165,8 +165,10 @@ class Wav2Vec2AsrRecipe(TrainRecipe):
             valid_splits = config.dataset.valid_split.split(",")
             if isinstance(context.model.base_module, Wav2Vec2LlamaModel):
                 log.info("Detected LLama model, using beamsearch during evaluation.")
-                llama_beam_search = (
-                    Wav2Vec2LlamaBeamSearchSeq2SeqGenerator.from_context(context)
+                llama_beam_search = Wav2Vec2LlamaBeamSearchSeq2SeqGenerator(
+                    model=context.model.base_module,  # type: ignore
+                    config=context.model.base_module.beam_search_config,  # type: ignore
+                    streaming_config=context.model.base_module.streaming_config,  # type: ignore
                 )
             else:
                 log.info(
@@ -193,7 +195,7 @@ class Wav2Vec2AsrRecipe(TrainRecipe):
                     tokenizer=context.default_tokenizer,
                     gangs=context.gangs,
                     dtype=config.trainer.mixed_precision.dtype,
-                    num_accumulate=config.trainer.grad_accumulation.num_batches,
+                    num_accumulate=1,  # no accumulation during validation
                     storage_config=storage_config,  # type: ignore
                     task_config=task_config,  # type: ignore
                 )

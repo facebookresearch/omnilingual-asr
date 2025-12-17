@@ -40,7 +40,7 @@ class DataLoaderExample:
         self,
         dataset_path: str,
         split: str = "train",
-        tokenizer_name: str = "omniASR_tokenizer",
+        tokenizer_name: str = "omniASR_tokenizer_v1",
         num_iterations: int = 10,
         stats_path: str | None = None,
         device: str = "cpu",

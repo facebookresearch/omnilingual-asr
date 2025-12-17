@@ -24,9 +24,9 @@ classifiers=[
     "Development Status :: 4 - Beta",
 ]
 
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
-    "fairseq2[arrow]>=0.5.2,<=0.6",
+    "fairseq2[arrow]>=0.5.2,<=0.6.0",
     "pyarrow>=20.0.0",
     "torch",
     "torchaudio",
