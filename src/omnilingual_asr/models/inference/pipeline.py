@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Final, List, Tuple
+from typing import Any, Dict, Final, List, Tuple, cast
 
 import numpy as np
 import torch
@@ -33,6 +33,11 @@ from fairseq2.nn.batch_layout import BatchLayout
 from numpy.typing import NDArray
 
 from omnilingual_asr.datasets.utils.audio import add_waveform_processing
+from omnilingual_asr.models.inference.align import (
+    align_ctc,
+    align_llm,
+    chunk_waveform,
+)
 from omnilingual_asr.models.wav2vec2_llama.beamsearch import (
     Wav2Vec2LlamaBeamSearchSeq2SeqGenerator,
 )
@@ -141,12 +146,13 @@ def assert_max_length(
     current_sample_rate = audio_data["sample_rate"]
     waveform_len_s = len(waveform) / current_sample_rate
     if waveform_len_s > MAX_ALLOWED_AUDIO_SEC:
-        raise ValueError(f"Max audio length is capped at {MAX_ALLOWED_AUDIO_SEC}s")
+        raise ValueError(
+            f"Audio length {waveform_len_s:.2f}s exceeds max {MAX_ALLOWED_AUDIO_SEC}s. Use chunk_len parameter to process long files."
+        )
     return audio_data
 
 
 class ASRInferencePipeline:
-
     def __init__(
         self,
         model_card: str | None,
@@ -256,7 +262,8 @@ class ASRInferencePipeline:
         text_collate_opts = CollateOptionsOverride("text", pad_value=pad_idx)
 
         self.full_collater = Collater(
-            pad_value=0, overrides=[text_collate_opts]  # Default pad value for audio
+            pad_value=0,
+            overrides=[text_collate_opts],  # Default pad value for audio
         )
         self.collater_audio = Collater(pad_value=0)
         self.collater_text = Collater(pad_value=pad_idx)
@@ -412,8 +419,7 @@ class ASRInferencePipeline:
         return transcriptions
 
     def _build_audio_wavform_pipeline(
-        self,
-        inp_list: AudioInput,
+        self, inp_list: AudioInput, check_max_length: bool = True
     ) -> DataPipelineBuilder:
         """Process audio inputs using fairseq2.data pipeline similar to ASR task."""
         # Build pipeline based on input type
@@ -455,7 +461,7 @@ class ASRInferencePipeline:
 
         # Check max allowed length if non-streaming
         non_streaming = not self.streaming_config.is_streaming
-        if non_streaming:
+        if non_streaming and check_max_length:
             builder = builder.map(assert_max_length, selector="data")
 
         # Add waveform processing
@@ -488,7 +494,9 @@ class ASRInferencePipeline:
             return None
 
         # Use the same audio processing pipeline as main inference
-        builder = self._build_audio_wavform_pipeline([example.audio for example in context_examples])  # type: ignore[arg-type]
+        # Cast mixed list to AudioInput to satisfy type checker
+        raw_audio = cast(AudioInput, [example.audio for example in context_examples])
+        builder = self._build_audio_wavform_pipeline(raw_audio)
         context_audio_tensors = list(builder.and_return())
 
         collated_audio = self.collater_audio(context_audio_tensors)
@@ -564,10 +572,13 @@ class ASRInferencePipeline:
         *,
         lang: List[str | None] | List[str] | List[None] | None = None,
         batch_size: int = 2,
-    ) -> List[str]:
+        chunk_len: float | None = None,
+    ) -> Tuple[List[str], List[List[Dict[str, Any]]]]:
         """
         Transcribes `AudioInput` into text by preprocessing (decoding, resample to 16kHz, converting to mono, normalizing)
         each input sample and performing inference with `self.model`.
+
+        Returns text and extracted timestamps.
 
         Works for both CTC and LLM model variants by optionally allowing a language conditioning token to help with LLM generation.
         It is ignored when performing inference with CTC. See `omnilingual_asr/models/wav2vec2_llama/lang_ids.py` for supported languages.
@@ -580,13 +591,16 @@ class ASRInferencePipeline:
                 - `List[ dict[str, Any] ]`: Pre-decoded audio with 'waveform' and 'sample_rate' keys
             `lang`: Language code for the input audios (e.g., 'eng_Latn', ...) (default: None)
                 - List [ str | None ]`: Any combination of missing and available language ids.
-            `batch_size`: Number of audio samples to process in each batch.
+            `batch_size`: Number of audio samples to process in each batch (per chunk).
+            `chunk_len`: Maximum length in seconds for processing. Longer files will be split.
 
         Returns:
-            `List[str]`: Transcribed texts.
+            Tuple[List[str], List[List[Dict[str, Any]]]]:
+                - List of transcribed texts.
+                - List of List of timestamp dicts (e.g. [{'word': 'Hello', 'start': 0.0, 'end': 0.5}])
         """
         if len(inp) == 0:
-            return []
+            return [], []
 
         # fmt: off
         is_ctc_model = isinstance(self.model, Wav2Vec2AsrModel)
@@ -608,24 +622,77 @@ class ASRInferencePipeline:
         assert len(lang) == len(inp), f"`lang` must be a list of the same length as `inp` ({len(inp)}), but is {len(lang)}."
         # fmt: on
 
-        # Process audio files using fairseq2.data pipeline
-        builder = DataPipeline.zip(
-            [
-                self._build_audio_wavform_pipeline(inp).and_return(),
-                read_sequence(lang).and_return(),
-            ]
-        )
+        final_transcripts = []
+        final_timestamps = []
 
-        builder = builder.bucket(batch_size)
-        builder = builder.map(self._create_batch_simple)
-        builder = builder.prefetch(1)
-        builder = builder.map(self._apply_model)
-        builder = builder.yield_from(
-            lambda seq: read_sequence(seq).and_return()
-        )  # flatten the sequence of sequences
+        # Pre-load waveforms one by one to handle chunking without pipeline's strict length check
+        # This replaces the streaming data pipeline with an eager loading strategy to support chunking/alignment
+        for idx, (input_item, input_lang) in enumerate(zip(inp, lang)):
+            # Use pipeline builder to decode/resample/norm, but bypass length check
+            single_input: AudioInput = cast(AudioInput, [input_item])
+            p = self._build_audio_wavform_pipeline(
+                single_input, check_max_length=False
+            ).and_return()
+            waveform = next(iter(p))  # Tensor[T]
 
-        transcriptions = list(builder.and_return())
-        return transcriptions
+            duration = waveform.shape[0] / 16000.0
+
+            if chunk_len is not None and duration > chunk_len:
+                chunks = chunk_waveform(waveform, 16000, chunk_len)
+            else:
+                if duration > MAX_ALLOWED_AUDIO_SEC and chunk_len is None:
+                    raise ValueError(
+                        f"Audio {idx} duration {duration:.2f}s > {MAX_ALLOWED_AUDIO_SEC}s. Provide chunk_len parameter."
+                    )
+                chunks = [(waveform, 0.0)]
+
+            input_text_parts = []
+            input_timestamps = []
+
+            chunk_waveforms = [c[0] for c in chunks]
+            offsets = [c[1] for c in chunks]
+
+            # Process chunks in batches
+            for i in range(0, len(chunk_waveforms), batch_size):
+                batch_wavs = chunk_waveforms[i : i + batch_size]
+                batch_offsets = offsets[i : i + batch_size]
+
+                batch_data = [(w, input_lang) for w in batch_wavs]
+                seq2seq_batch = self._create_batch_simple(batch_data)
+                texts = self._apply_model(seq2seq_batch)
+
+                for j, text in enumerate(texts):
+                    wav_segment = batch_wavs[j]
+                    offset = batch_offsets[j]
+
+                    if not text.strip():
+                        input_text_parts.append("")
+                        continue
+
+                    chunk_ts = []
+                    try:
+                        if isinstance(self.model, Wav2Vec2AsrModel):
+                            chunk_ts = align_ctc(self.model, wav_segment, 16000, text)
+                        elif isinstance(self.model, Wav2Vec2LlamaModel):
+                            chunk_ts = align_llm(self, wav_segment, text, input_lang)
+                    except Exception as e:
+                        log.warning(
+                            f"Alignment failed for chunk {i + j} of input {idx}: {e}"
+                        )
+                        chunk_ts = []
+
+                    for w in chunk_ts:
+                        w["start"] += offset
+                        w["end"] += offset
+                        input_timestamps.append(w)
+
+                    input_text_parts.append(text)
+
+            full_transcript = " ".join(t for t in input_text_parts if t.strip())
+            final_transcripts.append(full_transcript)
+            final_timestamps.append(input_timestamps)
+
+        return final_transcripts, final_timestamps
 
     @torch.inference_mode()
     def transcribe_with_context(
@@ -697,6 +764,4 @@ class ASRInferencePipeline:
         combined_builder = combined_builder.yield_from(
             lambda seq: read_sequence(seq).and_return()
         )
-
-        transcriptions = list(combined_builder.and_return())
-        return transcriptions
+        return list(combined_builder.and_return())

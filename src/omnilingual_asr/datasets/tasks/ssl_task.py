@@ -130,7 +130,6 @@ class SslTask(TaskInterface[SslTaskConfig]):
         gangs: Gangs,
         dtype: torch.dtype,
     ) -> DataPipelineBuilder:
-
         config = self.config
 
         # Shuffle individual samples
@@ -218,7 +217,6 @@ class SslTask(TaskInterface[SslTaskConfig]):
         batch_size: int,
         no_padding: bool,
     ) -> DataPipelineBuilder:
-
         if batching is BatchingStrategy.LENGTH:
             builder = add_length_batching(
                 builder,
@@ -260,7 +258,6 @@ class SslTask(TaskInterface[SslTaskConfig]):
         no_padding: bool,
         seed: int,
     ) -> DataPipelineBuilder:
-
         builder = add_audio_decoding(
             builder,
             dtype=dtype,
@@ -320,7 +317,6 @@ class SslTask(TaskInterface[SslTaskConfig]):
         num_prefetch: int,
         no_padding: bool,
     ) -> DataPipelineBuilder:
-
         collater = Collater(pad_value=None if no_padding else 0)
 
         builder.map(collater, num_parallel_calls=npc)

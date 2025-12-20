@@ -60,7 +60,6 @@ class ManifestAsrDataset:
         storage_config: ManifestStorageConfig,
         task_config: AsrTaskConfig,
     ) -> DataReader[Seq2SeqBatch]:
-
         storage = ManifestStorage(
             splits=self.splits,
             manifest_dir=self.manifest_dir,

@@ -205,7 +205,6 @@ class MixtureParquetStorage(StorageInterface[MixtureParquetStorageConfig]):
 
     @override
     def create_raw_data_pipeline(self, split: str, gangs: Gangs) -> DataPipelineBuilder:
-
         config = self.config
         schema: LangASRSchema = LangASRSchema()
 

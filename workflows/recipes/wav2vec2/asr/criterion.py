@@ -106,9 +106,7 @@ class Wav2Vec2AsrCriterion:
         """
         if isinstance(self._model.base_module, Wav2Vec2LlamaModel):
             # Llama model requires batch.extras for constructing the input batch
-            return self._model.module(
-                batch, return_logits=True
-            )  # type: ignore[call-overload]
+            return self._model.module(batch, return_logits=True)  # type: ignore[call-overload]
         else:
             source_seqs, source_seqs_layout = batch.as_source_input()  # Audio
             target_seqs, target_seqs_layout = batch.as_target_input()  # Text tokens

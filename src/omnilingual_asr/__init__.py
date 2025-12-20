@@ -38,7 +38,6 @@ def setup_fairseq2_extension(container: DependencyContainer) -> None:
 
 
 def _register_models(container: DependencyContainer) -> None:
-
     # Only adding custom wav2vec2 archs for wav2vec2_ssl model in fs2
     register_omnilingual_asr_wav2vec2_ssl_configs(container)
 

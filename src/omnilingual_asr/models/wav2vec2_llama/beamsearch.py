@@ -423,7 +423,8 @@ class Wav2Vec2LlamaBeamSearchSeq2SeqGenerator:
             # Choose nbest
             if self.config.length_norm:
                 n_tokens = torch.logical_and(
-                    out_tokens[:, :t] != self.pad_idx, out_tokens[:, :t] != self.eos_idx  # type: ignore[arg-type]
+                    out_tokens[:, :t] != self.pad_idx,
+                    out_tokens[:, :t] != self.eos_idx,  # type: ignore[arg-type]
                 ).sum(dim=1, keepdim=True)
                 if n_tokens[0, 0] > 0:
                     candidate_scores = (scores.unsqueeze(1) * n_tokens + log_probs) / (

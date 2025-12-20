@@ -284,9 +284,10 @@ def binary_to_list_int8(binary_array: pa.Array | pa.ChunkedArray) -> pa.Array:
 
     data_np = np.frombuffer(data, dtype="int8")[offsets_np[0] :]  # type: ignore
     offsets_np -= offsets_np[0]
+    offsets_array = pa.array(offsets_np, type=pa.int32())
     values_array = pa.array(data_np, type=pa.int8())
 
     list_array = pa.ListArray.from_arrays(
-        offsets_np, values_array, mask=binary_array.is_null()
+        offsets_array, values_array, mask=binary_array.is_null()
     )
     return list_array
