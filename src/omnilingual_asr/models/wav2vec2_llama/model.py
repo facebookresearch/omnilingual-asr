@@ -1017,7 +1017,9 @@ class Wav2Vec2LlamaModel(AsrModel):
             seqs, seqs_layout
         )
         enc_out, _ = self.encoder_frontend.process_features(
-            enc_out, enc_layout, self.masker if self.training else None  # type: ignore
+            enc_out,
+            enc_layout,
+            self.masker if self.training else None,  # type: ignore
         )
         enc_out = self.encoder(enc_out, enc_layout)
 

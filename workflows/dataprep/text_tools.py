@@ -80,7 +80,6 @@ def text_normalize(
     # The lookaround enables overlapping pattern matches to be replaced
 
     if remove_numbers:
-
         digits_pattern = "[" + config["digit_set"]
 
         digits_pattern += "]+"
