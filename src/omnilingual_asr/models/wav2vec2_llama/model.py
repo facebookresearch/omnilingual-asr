@@ -839,7 +839,7 @@ class Wav2Vec2LlamaModel(AsrModel):
         context_end_input = create_single_char_input(
             batch, self.special_tokens.context_end, device=device
         )
-        eos_idx, bos_idx = self._get_bos_eos()
+        bos_idx, eos_idx = self._get_bos_eos()
         bos_input = create_single_char_input(batch, bos_idx, device=device)
         eos_input = create_single_char_input(batch, eos_idx, device=device)
 
