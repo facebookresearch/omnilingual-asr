@@ -54,6 +54,8 @@ pip install omnilingual-asr
 uv add omnilingual-asr
 ```
 
+> **🔧 ARM64 / aarch64 users (DGX Spark, GB10):** Pre-built wheels for `fairseq2n` are not available for this platform. See [INSTALL_AARCH64.md](./INSTALL_AARCH64.md) for a step-by-step build-from-source guide.
+
 ## Inference
 
 ```python
