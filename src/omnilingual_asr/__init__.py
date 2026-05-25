@@ -26,6 +26,9 @@ from omnilingual_asr.models.wav2vec2_ssl.config import (
     register_omnilingual_asr_wav2vec2_ssl_configs,
 )
 
+from . import data
+from . import evaluate
+
 __version__ = "0.2.0"
 
 
