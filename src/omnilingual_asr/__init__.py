@@ -28,8 +28,8 @@ from omnilingual_asr.models.wav2vec2_ssl.config import (
 
 from . import data
 from . import evaluate
-from . import utils
-from . import constants
+#from . import utils
+#from . import constants
 
 __version__ = "0.2.0"
 
