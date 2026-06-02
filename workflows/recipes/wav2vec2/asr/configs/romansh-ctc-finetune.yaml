@@ -1,5 +1,5 @@
 model:
-  name: "omniASR_CTC_300M"          # or omniASR_CTC_300M, omniASR_CTC_1B, omniASR_CTC_3B
+  name: "omniASR_CTC_1B"          # or omniASR_CTC_300M, omniASR_CTC_1B, omniASR_CTC_3B
 
 dataset:
   name: "romansh_dataset"
@@ -15,10 +15,11 @@ dataset:
       cache: True
   asr_task_config:
     max_audio_len: 480000                   # 960_000 60 s at 16 kHz
-    max_num_elements: 2560000
+    max_num_elements: 640000
     batch_shuffle_window: 1
     normalize_audio: true
     example_shuffle_window: 5000       # full‑batch shuffling
+    min_audio_len: 10000
 
 tokenizer:                          #  Moved to the root level
   name: "omniASR_tokenizer_v1"
@@ -32,7 +33,7 @@ trainer:
   mixed_precision:
     dtype: "torch.bfloat16"
   grad_accumulation:
-    num_batches: 1                  # increase if OOM
+    num_batches: 4                  # increase if OOM
 
 regime:
   num_steps: 5_000                  # or more for larger datasets
