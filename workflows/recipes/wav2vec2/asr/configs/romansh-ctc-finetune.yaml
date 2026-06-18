@@ -14,7 +14,7 @@ dataset:
     fragment_loading:
       cache: True
   asr_task_config:
-    max_audio_len: 480000                   # 960_000 60 s at 16 kHz
+    max_audio_len: 480000                   # 480_000 30 s at 16 kHz
     max_num_elements: 640000
     batch_shuffle_window: 1
     normalize_audio: true

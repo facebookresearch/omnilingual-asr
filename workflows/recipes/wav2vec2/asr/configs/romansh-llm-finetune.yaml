@@ -1,0 +1,42 @@
+model:
+  name: "omniASR_LLM_1B"                  # LLM seq2seq model
+
+dataset:
+  name: "romansh_dataset"                 # your registered dataset
+  train_split: "train"
+  valid_split: "dev"
+  storage_mode: "MIXTURE_PARQUET"
+  task_mode: "ASR"
+  mixture_parquet_storage_config:
+    dataset_summary_path: "/local/scratch/matuor/parquet-dataset/rm-dataset/language_distribution_0.tsv"
+    beta_corpus: 0.5
+    beta_language: 0.5
+  asr_task_config:
+    min_audio_len: 4800                   # keep short utterances
+    max_audio_len: 480_000                # 30 sec
+    max_num_elements: 480_000             # adjust for 24 GB VRAM
+    batch_shuffle_window: 1
+    normalize_audio: true
+    example_shuffle_window: 5000             # full shuffle
+
+tokenizer:
+  name: "omniASR_tokenizer_v1"
+
+optimizer:
+  config:
+    lr: 5e-05                             # from example
+
+trainer:
+  data_parallelism: "ddp"                # single GPU – no FSDP
+  freeze_encoder_for_n_steps: 1000
+  mixed_precision:
+    dtype: "torch.bfloat16"
+  grad_accumulation:
+    num_batches: 16                      
+
+regime:
+  num_steps: 10000
+  validate_after_n_steps: 500
+  validate_every_n_steps: 500
+  checkpoint_every_n_steps: 500
+  publish_metrics_every_n_steps: 100
