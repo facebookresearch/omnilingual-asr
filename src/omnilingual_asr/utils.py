@@ -1,6 +1,10 @@
 import subprocess
 import re
 import unicodedata
+import yaml
+import sys
+from pathlib import Path
+from .constants import LANG_DIST_FILE_ROOT, PARQUET_DATA_ROOT
 
 def get_idiom_name_by_folder(folder_name):
   name = (folder_name.split("-")[0])[2:]
@@ -76,3 +80,44 @@ def normalize_romansh_text(text: str) -> str:
     text = re.sub(r'[^\w\s]', '', text, flags=re.UNICODE)
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+def set_config_paths(config_path: Path, dataset_card_path: Path, ):
+    """Reads the template yaml, updates paths dynamically, and saves the runtime config."""
+    if not config_path.exists():
+        print(f"Error: Configuration template not found at {config_path}")
+        raise FileNotFoundError(f"Configuration not found at: {config_path}")
+        
+    print("Generating runtime YAML configuration dynamically...")
+    with open(config_path, "r") as f:
+        config_data = yaml.safe_load(f)
+    
+    resolved_path = LANG_DIST_FILE_ROOT.resolve()
+    if "dataset" in config_data and "mixture_parquet_storage_config" in config_data["dataset"]:
+        config_data["dataset"]["mixture_parquet_storage_config"]["dataset_summary_path"] = str(resolved_path)
+    else:
+        print("Error: The template YAML structure does not match the expected nested keys.")
+        raise KeyError(f"The config is missing 'dataset_summary_path'")
+        
+    with open(config_path, "w") as f:
+        yaml.dump(config_data, f, default_flow_style=False)
+        
+    print(f"Runtime config written to {config_path}")
+    print(f"   dataset_summary_path dynamically set to: {resolved_path}")
+
+    if not dataset_card_path.exists():
+        print(f"Error: Dataset card template not found at {dataset_card_path}")
+        raise FileNotFoundError(f"Dataset card not found at: {dataset_card_path}")
+        
+    with open(dataset_card_path, "r") as f:
+        dataset_card_data = yaml.safe_load(f)
+        
+    if "dataset_config" in dataset_card_data:
+        dataset_card_data["dataset_config"]["data"] = str(PARQUET_DATA_ROOT)
+    else:
+        print("Error: The dataset card template YAML structure does not match the expected keys.")
+        raise KeyError(f"The dataset card is missing 'dataset_config'")
+        
+    with open(dataset_card_path, "w") as f:
+        yaml.dump(dataset_card_data, f, default_flow_style=False)
+    print(f"Dataset card config written to: {dataset_card_path}")
+    print(f"    data path set to: {PARQUET_DATA_ROOT}")

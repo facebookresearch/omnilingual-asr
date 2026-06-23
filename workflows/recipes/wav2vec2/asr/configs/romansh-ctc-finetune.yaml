@@ -18,7 +18,7 @@ dataset:
   train_split: train
   valid_split: dev
 model:
-  name: omniASR_CTC_1B
+  name: omniASR_CTC_1B_v2
 optimizer:
   config:
     lr: 1e-05
@@ -31,7 +31,7 @@ regime:
   validate_after_n_steps: 500
   validate_every_n_steps: 500
 tokenizer:
-  name: omniASR_tokenizer_v1
+  name: omniASR_tokenizer_written_v2
 trainer:
   freeze_encoder_for_n_steps: 0
   grad_accumulation:

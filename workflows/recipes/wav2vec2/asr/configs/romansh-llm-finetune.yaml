@@ -8,7 +8,7 @@ dataset:
   storage_mode: "MIXTURE_PARQUET"
   task_mode: "ASR"
   mixture_parquet_storage_config:
-    dataset_summary_path: "/local/scratch/matuor/parquet-dataset/rm-dataset/language_distribution_0.tsv"
+    dataset_summary_path: "/local/scratch/matuor/data/parquet-data/language_distribution_0.tsv"
     beta_corpus: 0.5
     beta_language: 0.5
   asr_task_config:

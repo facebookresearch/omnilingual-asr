@@ -8,15 +8,8 @@ from __future__ import annotations
 
 from fairseq2.recipe.cli import train_main
 
-import sys
-
 from .recipe import Wav2Vec2AsrRecipe
-from .recipe_lora import Wav2Vec2LoraAsrRecipe
 
-if "--lora" in sys.argv:
-  recipe = Wav2Vec2LoraAsrRecipe()
-  sys.argv.remove("--lora")
-else:
-  recipe = Wav2Vec2AsrRecipe()
+recipe = Wav2Vec2AsrRecipe()
 
 train_main(recipe)
