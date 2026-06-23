@@ -1,11 +1,13 @@
 import subprocess
+import re
+import unicodedata
 
 def get_idiom_name_by_folder(folder_name):
   name = (folder_name.split("-")[0])[2:]
   match name:
     case "sursilv":
       return "Sursilvan"
-    case "surmiran":
+    case "sursiv":
       return "Surmiran"
     case "sutsilv":
       return "Sutsilvan"
@@ -15,6 +17,22 @@ def get_idiom_name_by_folder(folder_name):
       return "Vallader"
     case _:
       return "RG"
+     
+def get_language_code_by_folder(folder_name):
+  name = (folder_name.split("-")[0])[2:]
+  match name:
+    case "sursilv":
+      return "roh_Latn_surs1244"
+    case "sursiv":
+      return "roh_Latn_surm1243"
+    case "sutsilv":
+      return "roh_Latn_suts1235"
+    case "puter":
+      return "roh_Latn_uppe1396"
+    case "vallader":
+      return "roh_Latn_lowe1386"
+    case _:
+      return "roh_Latn_ruma1247"
 
 def get_best_gpu():
     try:
@@ -41,3 +59,20 @@ def get_best_gpu():
         print(f"Error detecting best GPU: {e}")
         print("Defaulting to GPU 0")
         return 0
+
+def normalize_romansh_text(text: str) -> str:
+    """Normalize text for Romansh ASR:
+    - Unicode NFD → remove combining characters → NFC
+    - Lowercase
+    - Remove punctuation (keep letters and whitespace)
+    - Collapse multiple spaces
+    """
+    if not isinstance(text, str):
+        return ""
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if not unicodedata.combining(c))
+    text = unicodedata.normalize('NFC', text)
+    text = text.lower()
+    text = re.sub(r'[^\w\s]', '', text, flags=re.UNICODE)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text

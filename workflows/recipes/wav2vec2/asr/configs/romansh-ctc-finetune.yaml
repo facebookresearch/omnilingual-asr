@@ -1,45 +1,40 @@
-model:
-  name: "omniASR_CTC_1B"          # or omniASR_CTC_300M, omniASR_CTC_1B, omniASR_CTC_3B
-
 dataset:
-  name: "romansh_dataset"
-  train_split: "train"
-  valid_split: "dev"
-  storage_mode: "MIXTURE_PARQUET"
-  task_mode: "ASR"
+  asr_task_config:
+    batch_shuffle_window: 1
+    example_shuffle_window: 5000
+    max_audio_len: 480000
+    max_num_elements: 640000
+    min_audio_len: 10000
+    normalize_audio: true
   mixture_parquet_storage_config:
-    dataset_summary_path: "/local/scratch/matuor/parquet-dataset/rm-dataset/language_distribution_0.tsv"
     beta_corpus: 0.5
     beta_language: 0.5
+    dataset_summary_path: /local/scratch/matuor/data/parquet-data/language_distribution_0.tsv
     fragment_loading:
-      cache: True
-  asr_task_config:
-    max_audio_len: 480000                   # 480_000 30 s at 16 kHz
-    max_num_elements: 640000
-    batch_shuffle_window: 1
-    normalize_audio: true
-    example_shuffle_window: 5000       # full‑batch shuffling
-    min_audio_len: 10000
-
-tokenizer:                          #  Moved to the root level
-  name: "omniASR_tokenizer_v1"
-
+      cache: true
+  name: romansh_dataset
+  storage_mode: MIXTURE_PARQUET
+  task_mode: ASR
+  train_split: train
+  valid_split: dev
+model:
+  name: omniASR_CTC_1B
 optimizer:
   config:
     lr: 1e-05
-
+regime:
+  checkpoint_after_n_steps: 500
+  checkpoint_every_n_steps: 500
+  num_steps: 5000
+  publish_metrics_after_n_steps: 500
+  publish_metrics_every_n_steps: 500
+  validate_after_n_steps: 500
+  validate_every_n_steps: 500
+tokenizer:
+  name: omniASR_tokenizer_v1
 trainer:
   freeze_encoder_for_n_steps: 0
-  mixed_precision:
-    dtype: "torch.bfloat16"
   grad_accumulation:
-    num_batches: 4                  # increase if OOM
-
-regime:
-  num_steps: 5_000                  # or more for larger datasets
-  validate_every_n_steps: 500
-  validate_after_n_steps: 500
-  checkpoint_every_n_steps: 500
-  checkpoint_after_n_steps: 500
-  publish_metrics_every_n_steps: 500
-  publish_metrics_after_n_steps: 500
+    num_batches: 4
+  mixed_precision:
+    dtype: torch.bfloat16

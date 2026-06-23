@@ -3,8 +3,9 @@
 import pandas as pd
 from pathlib import Path
 from typing import List
+from .constants import DATA_ROOT
 
-def load_all_data(split: str = "test", data_root: str = "../../romansh-data") -> pd.DataFrame:
+def load_all_data(split: str = "test", data_root: str = DATA_ROOT) -> pd.DataFrame:
     """
     Load a specific split ('train', 'validation', 'test') from all idiom folders.
     Returns a DataFrame with columns: audio_path, sentence, idiom.

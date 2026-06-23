@@ -1,5 +1,5 @@
-name: romansh_dataset
-dataset_family: mixture_parquet_asr_dataset
 dataset_config:
-  data: /local/scratch/matuor/parquet-dataset/rm-dataset/version=0
+  data: /local/scratch/matuor/data/parquet-data/version=0
+dataset_family: mixture_parquet_asr_dataset
+name: romansh_dataset
 tokenizer_ref: omniASR_tokenizer_v1
