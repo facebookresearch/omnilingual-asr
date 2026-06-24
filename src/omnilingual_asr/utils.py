@@ -2,11 +2,11 @@ import subprocess
 import re
 import unicodedata
 import yaml
-import sys
 from pathlib import Path
 from .constants import LANG_DIST_FILE_ROOT, PARQUET_DATA_ROOT
 
 def get_idiom_name_by_folder(folder_name):
+  """Returns the name of the idiom given its folder name"""
   name = (folder_name.split("-")[0])[2:]
   match name:
     case "sursilv":
@@ -23,6 +23,7 @@ def get_idiom_name_by_folder(folder_name):
       return "RG"
      
 def get_language_code_by_folder(folder_name):
+  """Returns the language code of the idiom given its folder name"""
   name = (folder_name.split("-")[0])[2:]
   match name:
     case "sursilv":
@@ -39,6 +40,7 @@ def get_language_code_by_folder(folder_name):
       return "roh_Latn_ruma1247"
 
 def get_best_gpu():
+    """Finds GPU with most free memory available and returns the index"""
     try:
         cmd = ['nvidia-smi', '--query-gpu=index,memory.free', '--format=csv,noheader,nounits']
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -82,9 +84,9 @@ def normalize_romansh_text(text: str) -> str:
     return text
 
 def set_config_paths(config_path: Path, dataset_card_path: Path, ):
-    """Reads the template yaml, updates paths dynamically, and saves the runtime config."""
+    """Reads the config yaml, updates paths dynamically, and saves the runtime config."""
     if not config_path.exists():
-        print(f"Error: Configuration template not found at {config_path}")
+        print(f"Error: Configuration not found at {config_path}")
         raise FileNotFoundError(f"Configuration not found at: {config_path}")
         
     print("Generating runtime YAML configuration dynamically...")
@@ -95,7 +97,7 @@ def set_config_paths(config_path: Path, dataset_card_path: Path, ):
     if "dataset" in config_data and "mixture_parquet_storage_config" in config_data["dataset"]:
         config_data["dataset"]["mixture_parquet_storage_config"]["dataset_summary_path"] = str(resolved_path)
     else:
-        print("Error: The template YAML structure does not match the expected nested keys.")
+        print("Error: The config YAML structure does not match the expected nested keys.")
         raise KeyError(f"The config is missing 'dataset_summary_path'")
         
     with open(config_path, "w") as f:
@@ -105,7 +107,7 @@ def set_config_paths(config_path: Path, dataset_card_path: Path, ):
     print(f"   dataset_summary_path dynamically set to: {resolved_path}")
 
     if not dataset_card_path.exists():
-        print(f"Error: Dataset card template not found at {dataset_card_path}")
+        print(f"Error: Dataset card not found at {dataset_card_path}")
         raise FileNotFoundError(f"Dataset card not found at: {dataset_card_path}")
         
     with open(dataset_card_path, "r") as f:
@@ -114,7 +116,7 @@ def set_config_paths(config_path: Path, dataset_card_path: Path, ):
     if "dataset_config" in dataset_card_data:
         dataset_card_data["dataset_config"]["data"] = str(PARQUET_DATA_ROOT)
     else:
-        print("Error: The dataset card template YAML structure does not match the expected keys.")
+        print("Error: The dataset card YAML structure does not match the expected keys.")
         raise KeyError(f"The dataset card is missing 'dataset_config'")
         
     with open(dataset_card_path, "w") as f:

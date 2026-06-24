@@ -1,9 +1,8 @@
 # omnilingual_asr/evaluate.py
 
 from jiwer import wer, cer
-from typing import Optional, List, Tuple
+from typing import Optional
 import pandas as pd
-from collections import defaultdict
 
 def safe_wer(reference: str, hypothesis: str) -> Optional[float]:
     """Compute WER; returns None if inputs are empty."""
