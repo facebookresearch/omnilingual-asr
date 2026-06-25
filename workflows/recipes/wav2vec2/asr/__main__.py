@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from fairseq2.recipe.cli import train_main
 
-from .recipe import Wav2Vec2AsrRecipe
+#from .recipe import Wav2Vec2AsrRecipe
+
+from .recipe_lora import Wav2Vec2AsrRecipe
 
 recipe = Wav2Vec2AsrRecipe()
 
